@@ -1,16 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi import APIRouter
-from app.api.deps import get_current_user, get_db
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+
+from app.api.deps import get_current_user, get_db
+from app.schemas.auth import (
+    CurrentUserResponse,
+    RegisterRequest,
+    TokenResponse,
+)
 from app.services.auth_service import (
     authenticate_user,
     create_user_token,
     register_user,
-)
-from app.schemas.auth import (
-    LoginRequest,
-    RegisterRequest,
-    TokenResponse,
 )
 
 
@@ -18,6 +19,7 @@ router = APIRouter(
     prefix="/auth",
     tags=["Authentication"],
 )
+
 
 @router.post("/register")
 def register(
@@ -42,19 +44,20 @@ def register(
 
 @router.post("/login", response_model=TokenResponse)
 def login(
-    login_data: LoginRequest,
+    form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
     user = authenticate_user(
         db=db,
-        email=login_data.email,
-        password=login_data.password,
+        email=form_data.username,
+        password=form_data.password,
     )
 
     if user is None:
         raise HTTPException(
-            status_code=401,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
     access_token = create_user_token(user.email)
@@ -63,8 +66,12 @@ def login(
         access_token=access_token,
         token_type="bearer",
     )
-@router.get("/me")
-def get_me(current_user: str = Depends(get_current_user)):
-    return {
-        "email": current_user,
-    }
+
+
+@router.get("/me", response_model=CurrentUserResponse)
+def get_me(
+    current_user: str = Depends(get_current_user),
+):
+    return CurrentUserResponse(
+        email=current_user,
+    )
