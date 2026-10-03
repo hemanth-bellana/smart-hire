@@ -27,7 +27,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from app.db.base import Base
-from app.models import User
+from app.models import User,Candidate,Job,Resume
 from app.core.config import settings
 
 target_metadata = Base.metadata

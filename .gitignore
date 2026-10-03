@@ -73,4 +73,10 @@ htmlcov/
 
 *.tmp
 *.temp
-*.swp
+*.
+
+# ==============================
+# Uploaded files
+# ==============================
+
+backend/uploads/
