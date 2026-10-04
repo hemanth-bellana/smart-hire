@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.resume import Resume
+from app.services.candidate_profile_extractor import extract_candidate_profile
 from app.services.docx_parser import extract_text_from_docx
 from app.services.pdf_parser import extract_text_from_pdf
 
@@ -18,10 +19,6 @@ def process_resume_file(
     file_type: str,
     file_size: int,
 ) -> tuple[Candidate, Resume]:
-    """
-    Create candidate and resume records for a single PDF/DOCX resume
-    and extract its text.
-    """
 
     candidate = Candidate(
         job_id=job.id,
@@ -58,7 +55,36 @@ def process_resume_file(
         extracted_text = ""
 
     if extracted_text:
+        profile = extract_candidate_profile(extracted_text)
+
         candidate.resume_text = extracted_text
+        candidate.name = profile["name"]
+        candidate.email = profile["email"]
+        candidate.phone = profile["phone"]
+        candidate.location = profile["location"]
+
+        candidate.skills = (
+            ", ".join(profile["skills"])
+            if profile["skills"]
+            else None
+        )
+
+        candidate.education = profile["education"]
+
+        candidate.experience_years = profile["experience_years"]
+
+        candidate.previous_companies = (
+            ", ".join(profile["previous_companies"])
+            if profile["previous_companies"]
+            else None
+        )
+
+        candidate.certifications = (
+            ", ".join(profile["certifications"])
+            if profile["certifications"]
+            else None
+        )
+
         resume.processing_status = "COMPLETED"
 
         db.commit()
