@@ -5,13 +5,11 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.models.candidate import Candidate
 from app.models.job import Job
-from app.models.resume import Resume
 from app.models.user import User
-from app.services.docx_parser import extract_text_from_docx
-from app.services.pdf_parser import extract_text_from_pdf
+from app.services.resume_processor import process_resume_file
 from app.utils.file_utils import validate_resume_file
+from app.utils.zip_utils import extract_zip_file, validate_zip_file
 
 
 router = APIRouter(
@@ -71,51 +69,78 @@ async def upload_resume(
 
     file_path.write_bytes(contents)
 
-    candidate = Candidate(
-        job_id=job.id,
-        status="PENDING",
-    )
+    # ---------------------------------------------------------
+    # ZIP upload
+    # ---------------------------------------------------------
 
-    db.add(candidate)
-    db.commit()
-    db.refresh(candidate)
+    if extension == ".zip":
+        valid_files = validate_zip_file(
+            str(file_path)
+        )
 
-    resume = Resume(
-        candidate_id=candidate.id,
+        zip_extract_directory = (
+            UPLOAD_DIRECTORY / f"zip_{uuid4().hex}"
+        )
+
+        extracted_files = extract_zip_file(
+            zip_path=str(file_path),
+            extract_directory=str(zip_extract_directory),
+        )
+
+        processed_resumes = []
+
+        for extracted_file in extracted_files:
+            extracted_path = Path(extracted_file)
+
+            candidate, resume = process_resume_file(
+                db=db,
+                job=job,
+                file_path=str(extracted_path),
+                original_filename=extracted_path.name,
+                stored_filename=extracted_path.name,
+                file_type=(
+                    "application/pdf"
+                    if extracted_path.suffix.lower() == ".pdf"
+                    else (
+                        "application/"
+                        "vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
+                ),
+                file_size=extracted_path.stat().st_size,
+            )
+
+            processed_resumes.append(
+                {
+                    "candidate_id": candidate.id,
+                    "resume_id": resume.id,
+                    "filename": extracted_path.name,
+                    "processing_status": resume.processing_status,
+                }
+            )
+
+        return {
+            "message": "ZIP resumes processed successfully",
+            "job_id": job.id,
+            "original_filename": file.filename,
+            "stored_filename": stored_filename,
+            "file_size": len(contents),
+            "processing_status": "COMPLETED",
+            "resume_files": processed_resumes,
+        }
+
+    # ---------------------------------------------------------
+    # Single PDF/DOCX upload
+    # ---------------------------------------------------------
+
+    candidate, resume = process_resume_file(
+        db=db,
+        job=job,
+        file_path=str(file_path),
         original_filename=file.filename,
         stored_filename=stored_filename,
-        file_path=str(file_path),
         file_type=file.content_type,
         file_size=len(contents),
-        processing_status="UPLOADED",
     )
-
-    db.add(resume)
-    db.commit()
-    db.refresh(resume)
-
-    # Extract text based on the uploaded file type.
-    if extension == ".pdf":
-        extracted_text = extract_text_from_pdf(
-            str(file_path)
-        )
-
-    elif extension == ".docx":
-        extracted_text = extract_text_from_docx(
-            str(file_path)
-        )
-
-    else:
-        extracted_text = ""
-
-    # Save extracted text to the candidate record.
-    if extracted_text:
-        candidate.resume_text = extracted_text
-        resume.processing_status = "COMPLETED"
-
-        db.commit()
-        db.refresh(candidate)
-        db.refresh(resume)
 
     return {
         "message": "Resume uploaded successfully",
