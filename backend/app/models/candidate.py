@@ -14,11 +14,17 @@ class Candidate(Base):
         index=True,
     )
 
-    job_id: Mapped[int] = mapped_column(
-        ForeignKey("jobs.id"),
-        nullable=False,
-        index=True,
+    job_id: Mapped[int | None] = mapped_column(
+    ForeignKey("jobs.id"),
+    nullable=True,
+    index=True,
     )
+
+    screening_id: Mapped[int | None] = mapped_column(
+    ForeignKey("screenings.id"),
+    nullable=True,
+    index=True,
+)
 
     name: Mapped[str | None] = mapped_column(
         String(255),

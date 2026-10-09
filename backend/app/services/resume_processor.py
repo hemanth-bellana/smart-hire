@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.resume import Resume
+from app.models.Screening import Screening
 from app.services.candidate_profile_extractor import extract_candidate_profile
 from app.services.docx_parser import extract_text_from_docx
 from app.services.pdf_parser import extract_text_from_pdf
@@ -12,16 +13,28 @@ from app.services.pdf_parser import extract_text_from_pdf
 
 def process_resume_file(
     db: Session,
-    job: Job,
     file_path: str,
     original_filename: str,
     stored_filename: str,
     file_type: str,
     file_size: int,
+    job: Job | None = None,
+    screening: Screening | None = None,
 ) -> tuple[Candidate, Resume]:
 
+    if job is None and screening is None:
+        raise ValueError(
+            "Either job or screening must be provided."
+        )
+
+    if job is not None and screening is not None:
+        raise ValueError(
+            "Provide either job or screening, not both."
+        )
+
     candidate = Candidate(
-        job_id=job.id,
+        job_id=job.id if job else None,
+        screening_id=screening.id if screening else None,
         status="PENDING",
     )
 

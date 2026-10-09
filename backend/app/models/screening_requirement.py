@@ -1,22 +1,23 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 
 
-class JobRequirement(Base):
-    __tablename__ = "job_requirements"
+class ScreeningRequirement(Base):
+    __tablename__ = "screening_requirements"
 
     id: Mapped[int] = mapped_column(
         primary_key=True,
         index=True,
     )
 
-    job_id: Mapped[int] = mapped_column(
-        ForeignKey("jobs.id"),
+    screening_id: Mapped[int] = mapped_column(
+        ForeignKey("screenings.id"),
         nullable=False,
+        unique=True,
         index=True,
     )
 
@@ -35,17 +36,23 @@ class JobRequirement(Base):
         nullable=True,
     )
 
-    required_experience_areas: Mapped[str | None] = mapped_column(
-    Text,
-    nullable=True,
+    maximum_experience_years: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
     )
 
-    education: Mapped[str | None] = mapped_column(
+    experience_requirement_type: Mapped[str] = mapped_column(
+        String(50),
+        default="NONE",
+        nullable=False,
+    )
+
+    required_experience_areas: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )
 
-    other_requirements: Mapped[str | None] = mapped_column(
+    education: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )

@@ -8,3 +8,7 @@ email-validator
 pwdlib[argon2]
 PyJWT
 python-multipart
+pymupdf
+python-docx
+sentence-transformers
+scikit-learn

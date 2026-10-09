@@ -6,7 +6,7 @@ from app.api.routes.health import router as health_router
 from app.api.routes.jobs import router as jobs_router
 from app.core.config import settings
 from app.api.routes.resumes import router as resumes_router
-
+from app.api.routes.screening import router as screening_router
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -31,7 +31,7 @@ app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(jobs_router)
 app.include_router(resumes_router)
-
+app.include_router(screening_router)
 
 @app.get("/")
 def root():

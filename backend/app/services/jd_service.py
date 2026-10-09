@@ -12,21 +12,20 @@ def analyze_and_save_job_requirements(
     analysis = analyze_job_description(job.description)
 
     requirement = JobRequirement(
-        job_id=job.id,
-        required_skills=(
-            ", ".join(analysis["required_skills"])
-            if analysis["required_skills"]
-            else None
-        ),
-        preferred_skills=(
-            ", ".join(analysis["preferred_skills"])
-            if analysis["preferred_skills"]
-            else None
-        ),
-        minimum_experience_years=analysis[
-            "minimum_experience_years"
-        ],
+    job_id=job.id,
+    required_skills=", ".join(analysis["required_skills"])
+    if analysis["required_skills"]
+    else None,
+    preferred_skills=", ".join(analysis["preferred_skills"])
+    if analysis["preferred_skills"]
+    else None,
+    minimum_experience_years=analysis["minimum_experience_years"],
+    required_experience_areas=", ".join(
+        analysis["required_experience_areas"]
     )
+    if analysis["required_experience_areas"]
+    else None,
+)
 
     db.add(requirement)
     db.commit()
