@@ -676,6 +676,7 @@ def calculate_overall_score(
 # ============================================================
 
 
+
 def match_candidate_against_screening(
     candidate: Candidate,
     requirement: ScreeningRequirement,
@@ -684,16 +685,6 @@ def match_candidate_against_screening(
     """
     Match one candidate against the structured requirements
     of a screening.
-
-    Implemented:
-    - Skills
-    - Experience
-    - Education
-    - Certification
-    - Keyword matching
-
-    Not yet implemented:
-    - Semantic JD matching
     """
 
     # ---------------------------------------------------------
@@ -722,6 +713,76 @@ def match_candidate_against_screening(
             requirement.experience_requirement_type
         ),
     )
+
+    # ---------------------------------------------------------
+    # Mandatory experience eligibility
+    # ---------------------------------------------------------
+
+    requirement_type = (
+        (requirement.experience_requirement_type or "NONE")
+        .strip()
+        .upper()
+    )
+
+    minimum_years = requirement.minimum_experience_years
+    maximum_years = requirement.maximum_experience_years
+
+    if requirement_type == "NONE":
+        eligibility_status = "ELIGIBLE"
+        eligibility_reason = (
+            "No mandatory experience requirement was specified."
+        )
+
+    elif requirement_type == "MINIMUM":
+        if (
+            minimum_years is None
+            or candidate.experience_years is None
+        ):
+            eligibility_status = "NEEDS_REVIEW"
+            eligibility_reason = experience_result[
+                "experience_summary"
+            ]
+
+        elif candidate.experience_years < minimum_years:
+            eligibility_status = "NOT_ELIGIBLE"
+            eligibility_reason = experience_result[
+                "experience_summary"
+            ]
+
+        else:
+            eligibility_status = "ELIGIBLE"
+            eligibility_reason = experience_result[
+                "experience_summary"
+            ]
+
+    elif requirement_type == "RANGE":
+        if (
+            minimum_years is None
+            or maximum_years is None
+            or candidate.experience_years is None
+        ):
+            eligibility_status = "NEEDS_REVIEW"
+            eligibility_reason = experience_result[
+                "experience_summary"
+            ]
+
+        elif candidate.experience_years < minimum_years:
+            eligibility_status = "NOT_ELIGIBLE"
+            eligibility_reason = experience_result[
+                "experience_summary"
+            ]
+
+        else:
+            eligibility_status = "ELIGIBLE"
+            eligibility_reason = experience_result[
+                "experience_summary"
+            ]
+
+    else:
+        eligibility_status = "NEEDS_REVIEW"
+        eligibility_reason = (
+            "The experience requirement could not be evaluated."
+        )
 
     # ---------------------------------------------------------
     # Education matching
@@ -760,16 +821,13 @@ def match_candidate_against_screening(
     # Semantic matching
     # ---------------------------------------------------------
 
-# ---------------------------------------------------------
-# Semantic matching
-# ---------------------------------------------------------
-
     semantic_result = calculate_semantic_match(
-    candidate_resume_text=candidate.resume_text,
-    job_description_text=screening.jd_text,
-)
+        candidate_resume_text=candidate.resume_text,
+        job_description_text=screening.jd_text,
+    )
 
     semantic_score = semantic_result["semantic_score"]
+
     # ---------------------------------------------------------
     # Overall score
     # ---------------------------------------------------------
@@ -779,9 +837,9 @@ def match_candidate_against_screening(
         experience_score=experience_result["experience_score"],
         semantic_score=semantic_score,
         education_score=education_result["education_score"],
-        certification_score=(
-            certification_result["certification_score"]
-        ),
+        certification_score=certification_result[
+            "certification_score"
+        ],
         keyword_score=keyword_result["keyword_score"],
     )
 
@@ -791,87 +849,47 @@ def match_candidate_against_screening(
 
     return {
         "candidate_id": candidate.id,
-
         "overall_score": overall_result["overall_score"],
-
         "skill_score": skill_result["skill_score"],
-
-        "experience_score": (
-            experience_result["experience_score"]
-        ),
-
+        "experience_score": experience_result["experience_score"],
         "semantic_score": semantic_score,
         "semantic_summary": semantic_result["semantic_summary"],
-
-        "education_score": (
-            education_result["education_score"]
-        ),
-
-        "certification_score": (
-            certification_result["certification_score"]
-        ),
-
-        "keyword_score": (
-            keyword_result["keyword_score"]
-        ),
-
-        "matched_required_skills": (
-            skill_result["matched_required_skills"]
-        ),
-
-        "missing_required_skills": (
-            skill_result["missing_required_skills"]
-        ),
-
-        "matched_preferred_skills": (
-            skill_result["matched_preferred_skills"]
-        ),
-
-        "experience_match": (
-            experience_result["experience_match"]
-        ),
-
-        "experience_summary": (
-            experience_result["experience_summary"]
-        ),
-
-        "education_match": (
-            education_result["education_match"]
-        ),
-
-        "education_summary": (
-            education_result["education_summary"]
-        ),
-
-        "certification_match": (
-            certification_result["certification_match"]
-        ),
-
-        "certification_summary": (
-            certification_result["certification_summary"]
-        ),
-
-        "matched_certifications": (
-            certification_result["matched_certifications"]
-        ),
-
-        "missing_certifications": (
-            certification_result["missing_certifications"]
-        ),
-
-        "matched_keywords": (
-            keyword_result["matched_keywords"]
-        ),
-
-        "missing_keywords": (
-            keyword_result["missing_keywords"]
-        ),
-
-        "keyword_summary": (
-            keyword_result["keyword_summary"]
-        ),
-
-        "scoring_weights": (
-            overall_result["weights"]
-        ),
+        "education_score": education_result["education_score"],
+        "certification_score": certification_result[
+            "certification_score"
+        ],
+        "keyword_score": keyword_result["keyword_score"],
+        "matched_required_skills": skill_result[
+            "matched_required_skills"
+        ],
+        "missing_required_skills": skill_result[
+            "missing_required_skills"
+        ],
+        "matched_preferred_skills": skill_result[
+            "matched_preferred_skills"
+        ],
+        "experience_match": experience_result["experience_match"],
+        "experience_summary": experience_result[
+            "experience_summary"
+        ],
+        "eligibility_status": eligibility_status,
+        "eligibility_reason": eligibility_reason,
+        "education_match": education_result["education_match"],
+        "education_summary": education_result["education_summary"],
+        "certification_match": certification_result[
+            "certification_match"
+        ],
+        "certification_summary": certification_result[
+            "certification_summary"
+        ],
+        "matched_certifications": certification_result[
+            "matched_certifications"
+        ],
+        "missing_certifications": certification_result[
+            "missing_certifications"
+        ],
+        "matched_keywords": keyword_result["matched_keywords"],
+        "missing_keywords": keyword_result["missing_keywords"],
+        "keyword_summary": keyword_result["keyword_summary"],
+        "scoring_weights": overall_result["weights"],
     }
