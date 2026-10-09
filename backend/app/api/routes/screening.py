@@ -8,6 +8,8 @@ from app.api.deps import get_current_user
 from app.db.database import get_db
 from app.models.candidate import Candidate
 from app.models.Screening import Screening
+from app.models.screening_requirement import ScreeningRequirement
+from app.services.matching_service import match_candidate_against_screening
 from app.models.user import User
 from app.services.docx_parser import extract_text_from_docx
 from app.services.pdf_parser import extract_text_from_pdf
@@ -17,7 +19,6 @@ from app.services.screening_requirement_service import (
 )
 from app.utils.file_utils import validate_resume_file
 from app.utils.zip_utils import extract_zip_file, validate_zip_file
-
 
 router = APIRouter(
     prefix="/screening",
@@ -258,4 +259,77 @@ def get_screening_candidates(
             }
             for candidate in candidates
         ],
+    }
+
+@router.get("/{screening_id}/matches")
+def get_screening_matches(
+    screening_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Verify that this screening belongs to the logged-in HR user.
+    screening = (
+        db.query(Screening)
+        .filter(
+            Screening.id == screening_id,
+            Screening.created_by == current_user.id,
+        )
+        .first()
+    )
+
+    if not screening:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Screening not found.",
+        )
+
+    # Retrieve the structured requirements for this screening.
+    requirement = (
+        db.query(ScreeningRequirement)
+        .filter(
+            ScreeningRequirement.screening_id == screening_id
+        )
+        .first()
+    )
+
+    if not requirement:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Screening requirements not found.",
+        )
+
+    # Retrieve all candidates associated with this screening.
+    candidates = (
+        db.query(Candidate)
+        .filter(Candidate.screening_id == screening_id)
+        .order_by(Candidate.id.asc())
+        .all()
+    )
+
+    # Calculate a match result for each candidate.
+    matches = []
+
+    for candidate in candidates:
+        result = match_candidate_against_screening(
+            candidate=candidate,
+            requirement=requirement,
+            screening=screening,
+        )
+
+        result["candidate_name"] = candidate.name
+        result["candidate_email"] = candidate.email
+
+        matches.append(result)
+
+    # Rank candidates from highest to lowest overall score.
+    matches.sort(
+        key=lambda item: item["overall_score"],
+        reverse=True,
+    )
+
+    return {
+        "screening_id": screening.id,
+        "jd_filename": screening.jd_filename,
+        "total_candidates": len(matches),
+        "matches": matches,
     }
