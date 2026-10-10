@@ -576,6 +576,7 @@ def validate_weights(weights: dict[str, float]) -> None:
 
 
 
+
 def calculate_overall_score(
     skill_score: float,
     experience_score: float,
@@ -584,17 +585,13 @@ def calculate_overall_score(
     certification_score: float = 0.0,
     keyword_score: float = 0.0,
     weights: dict[str, float] | None = None,
+    applicable_components: set[str] | None = None,
 ) -> dict:
     """
     Calculate the weighted overall candidate score.
 
-    Default scoring weights:
-    - Skill matching: 40%
-    - Experience matching: 20%
-    - Semantic JD matching: 20%
-    - Education matching: 10%
-    - Certification matching: 5%
-    - Keyword matching: 5%
+    When applicable_components is provided, redistribute the
+    original weights across only the applicable components.
     """
 
     scoring_weights = (
@@ -603,7 +600,6 @@ def calculate_overall_score(
         else DEFAULT_WEIGHTS.copy()
     )
 
-    # Ensure all required scoring components exist.
     required_components = {
         "skill",
         "experience",
@@ -620,10 +616,8 @@ def calculate_overall_score(
             "certification, keyword."
         )
 
-    # Validate that weights total 100.
     validate_weights(scoring_weights)
 
-    # Validate individual scores.
     component_scores = {
         "skill": skill_score,
         "experience": experience_score,
@@ -634,41 +628,77 @@ def calculate_overall_score(
     }
 
     for component, score in component_scores.items():
-        if not 0 <= score <= 100:
+        if not isinstance(score, (int, float)) or not 0 <= score <= 100:
             raise ValueError(
                 f"{component} score must be between 0 and 100."
             )
 
-    # Calculate each weighted contribution.
-    weighted_scores = {
-        component: (
-            score * scoring_weights[component] / 100
+    if applicable_components is None:
+        applicable_components = required_components.copy()
+
+    unknown_components = applicable_components - required_components
+    if unknown_components:
+        raise ValueError(
+            f"Unknown scoring components: {sorted(unknown_components)}"
         )
-        for component, score in component_scores.items()
+
+    if not applicable_components:
+        return {
+            "overall_score": 0.0,
+            "component_scores": {
+                f"{component}_score": round(score, 2)
+                for component, score in component_scores.items()
+            },
+            "weighted_scores": {
+                component: 0.0
+                for component in component_scores
+            },
+            "weights": {component: 0.0 for component in component_scores},
+        }
+
+    applicable_weight_total = sum(
+        scoring_weights[component]
+        for component in applicable_components
+    )
+
+    if applicable_weight_total <= 0:
+        raise ValueError(
+            "Applicable components must have a combined weight greater than zero."
+        )
+
+    normalized_weights = {
+        component: (
+            scoring_weights[component] * 100 / applicable_weight_total
+            if component in applicable_components
+            else 0.0
+        )
+        for component in component_scores
     }
 
-    # Calculate the final overall score.
+    weighted_scores = {
+        component: (
+            component_scores[component] * normalized_weights[component] / 100
+        )
+        for component in component_scores
+    }
+
     overall_score = sum(weighted_scores.values())
 
     return {
         "overall_score": round(overall_score, 2),
         "component_scores": {
-            "skill_score": round(skill_score, 2),
-            "experience_score": round(experience_score, 2),
-            "semantic_score": round(semantic_score, 2),
-            "education_score": round(education_score, 2),
-            "certification_score": round(
-                certification_score, 2
-            ),
-            "keyword_score": round(keyword_score, 2),
+            f"{component}_score": round(score, 2)
+            for component, score in component_scores.items()
         },
         "weighted_scores": {
             component: round(score, 2)
             for component, score in weighted_scores.items()
         },
-        "weights": scoring_weights,
+        "weights": {
+            component: round(weight, 2)
+            for component, weight in normalized_weights.items()
+        },
     }
-
 
 
 # ============================================================
@@ -831,17 +861,58 @@ def match_candidate_against_screening(
     # ---------------------------------------------------------
     # Overall score
     # ---------------------------------------------------------
+    # ---------------------------------------------------------
+    # Determine applicable scoring components
+    # ---------------------------------------------------------
+
+    applicable_components = set()
+
+    if (
+        requirement.required_skills
+        or requirement.preferred_skills
+    ):
+        applicable_components.add("skill")
+
+    requirement_type = (
+        (requirement.experience_requirement_type or "NONE")
+        .strip()
+        .upper()
+    )
+
+    if requirement_type in {"MINIMUM", "RANGE"}:
+        applicable_components.add("experience")
+
+    if requirement.education and requirement.education.strip():
+        applicable_components.add("education")
+
+    if required_certifications and required_certifications.strip():
+        applicable_components.add("certification")
+
+    if (
+        candidate.resume_text
+        and candidate.resume_text.strip()
+        and screening.jd_text
+        and screening.jd_text.strip()
+    ):
+        applicable_components.add("semantic")
+
+    if keyword_result["matched_keywords"] or keyword_result["missing_keywords"]:
+        applicable_components.add("keyword")
+
+    # ---------------------------------------------------------
+    # Calculate the normalized overall score
+    # ---------------------------------------------------------
 
     overall_result = calculate_overall_score(
         skill_score=skill_result["skill_score"],
         experience_score=experience_result["experience_score"],
         semantic_score=semantic_score,
         education_score=education_result["education_score"],
-        certification_score=certification_result[
-            "certification_score"
-        ],
+        certification_score=certification_result["certification_score"],
         keyword_score=keyword_result["keyword_score"],
+        applicable_components=applicable_components,
     )
+
 
     # ---------------------------------------------------------
     # Final explainable result
@@ -893,3 +964,40 @@ def match_candidate_against_screening(
         "keyword_summary": keyword_result["keyword_summary"],
         "scoring_weights": overall_result["weights"],
     }
+
+from types import SimpleNamespace
+
+from app.services.matching_service import match_candidate_against_screening
+
+
+def make_candidate(experience_years):
+    return SimpleNamespace(
+        skills="Python, SQL",
+        experience_years=experience_years,
+        education="B.Tech",
+        certifications=None,
+        resume_text="Python developer with SQL experience",
+    )
+
+
+def make_requirement(
+    requirement_type="MINIMUM",
+    minimum_years=2,
+    maximum_years=None,
+):
+    return SimpleNamespace(
+        required_skills="Python",
+        preferred_skills=None,
+        minimum_experience_years=minimum_years,
+        maximum_experience_years=maximum_years,
+        experience_requirement_type=requirement_type,
+        required_experience_areas=None,
+        education=None,
+        required_certifications=None,
+    )
+
+
+def make_screening():
+    return SimpleNamespace(
+        jd_text="Python developer with at least 2 years of experience"
+    )
