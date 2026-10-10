@@ -320,12 +320,24 @@ def get_screening_matches(
         result["candidate_email"] = candidate.email
 
         matches.append(result)
+    # Rank eligible candidates first, then candidates needing
+    # review, and finally candidates who are not eligible.
+    eligibility_priority = {
+        "ELIGIBLE": 0,
+        "NEEDS_REVIEW": 1,
+        "NOT_ELIGIBLE": 2,
+    }
 
-    # Rank candidates from highest to lowest overall score.
     matches.sort(
-        key=lambda item: item["overall_score"],
-        reverse=True,
+        key=lambda item: (
+            eligibility_priority.get(
+                item.get("eligibility_status", "NEEDS_REVIEW"),
+                1,
+            ),
+            -item["overall_score"],
+        )
     )
+
 
     return {
         "screening_id": screening.id,
