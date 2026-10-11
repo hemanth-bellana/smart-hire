@@ -1,9 +1,7 @@
 from pathlib import Path
 from uuid import uuid4
-
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
-
 from app.api.deps import get_current_user
 from app.db.database import get_db
 from app.models.candidate import Candidate
@@ -19,17 +17,13 @@ from app.services.screening_requirement_service import (
 )
 from app.utils.file_utils import validate_resume_file
 from app.utils.zip_utils import extract_zip_file, validate_zip_file
-
+from app.services.ranking_service import rank_matches
 router = APIRouter(
     prefix="/screening",
     tags=["Screening"],
 )
-
-
 UPLOAD_DIR = Path("uploads/screenings")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
-
 @router.post("/jd")
 async def upload_screening_jd(
     file: UploadFile = File(...),
@@ -212,54 +206,6 @@ async def upload_screening_resume(
     }
 
 
-@router.get("/{screening_id}/candidates")
-def get_screening_candidates(
-    screening_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    screening = (
-        db.query(Screening)
-        .filter(
-            Screening.id == screening_id,
-            Screening.created_by == current_user.id,
-        )
-        .first()
-    )
-
-    if not screening:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Screening not found.",
-        )
-
-    candidates = (
-        db.query(Candidate)
-        .filter(Candidate.screening_id == screening_id)
-        .order_by(Candidate.id.asc())
-        .all()
-    )
-
-    return {
-        "screening_id": screening.id,
-        "total_candidates": len(candidates),
-        "candidates": [
-            {
-                "candidate_id": candidate.id,
-                "name": candidate.name,
-                "email": candidate.email,
-                "phone": candidate.phone,
-                "location": candidate.location,
-                "skills": candidate.skills,
-                "education": candidate.education,
-                "experience_years": candidate.experience_years,
-                "previous_companies": candidate.previous_companies,
-                "certifications": candidate.certifications,
-                "status": candidate.status,
-            }
-            for candidate in candidates
-        ],
-    }
 
 @router.get("/{screening_id}/matches")
 def get_screening_matches(
@@ -320,24 +266,9 @@ def get_screening_matches(
         result["candidate_email"] = candidate.email
 
         matches.append(result)
-    # Rank eligible candidates first, then candidates needing
-    # review, and finally candidates who are not eligible.
-    eligibility_priority = {
-        "ELIGIBLE": 0,
-        "NEEDS_REVIEW": 1,
-        "NOT_ELIGIBLE": 2,
-    }
 
-    matches.sort(
-        key=lambda item: (
-            eligibility_priority.get(
-                item.get("eligibility_status", "NEEDS_REVIEW"),
-                1,
-            ),
-            -item["overall_score"],
-        )
-    )
-
+    # Rank candidates by eligibility and overall score.
+    matches = rank_matches(matches)
 
     return {
         "screening_id": screening.id,
