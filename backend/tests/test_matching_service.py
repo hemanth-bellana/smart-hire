@@ -188,3 +188,20 @@ def test_candidate_needs_review_for_unsupported_requirement_type():
 
     assert result["eligibility_status"] == "NEEDS_REVIEW"
     assert "could not be evaluated" in result["eligibility_reason"]
+
+def test_candidate_needs_review_for_invalid_parsed_experience_requirement():
+    candidate = make_candidate(experience_years=3)
+    requirement = make_requirement(
+        requirement_type="INVALID",
+        minimum_years=None,
+    )
+    screening = make_screening()
+
+    result = match_candidate_against_screening(
+        candidate,
+        requirement,
+        screening,
+    )
+
+    assert result["eligibility_status"] == "NEEDS_REVIEW"
+    assert "could not be evaluated" in result["eligibility_reason"]
