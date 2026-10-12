@@ -137,3 +137,54 @@ def test_candidate_needs_review_when_experience_is_missing():
 
     assert result["eligibility_status"] == "NEEDS_REVIEW"
     assert "could not be determined" in result["eligibility_reason"]
+
+def test_candidate_needs_review_when_minimum_requirement_is_missing():
+    candidate = make_candidate(experience_years=3)
+    requirement = make_requirement(
+        requirement_type="MINIMUM",
+        minimum_years=None,
+    )
+    screening = make_screening()
+
+    result = match_candidate_against_screening(
+        candidate,
+        requirement,
+        screening,
+    )
+
+    assert result["eligibility_status"] == "NEEDS_REVIEW"
+
+
+def test_candidate_needs_review_when_experience_range_is_incomplete():
+    candidate = make_candidate(experience_years=3)
+    requirement = make_requirement(
+        requirement_type="RANGE",
+        minimum_years=2,
+        maximum_years=None,
+    )
+    screening = make_screening()
+
+    result = match_candidate_against_screening(
+        candidate,
+        requirement,
+        screening,
+    )
+
+    assert result["eligibility_status"] == "NEEDS_REVIEW"
+
+def test_candidate_needs_review_for_unsupported_requirement_type():
+    candidate = make_candidate(experience_years=3)
+    requirement = make_requirement(
+        requirement_type="INVALID",
+        minimum_years=2,
+    )
+    screening = make_screening()
+
+    result = match_candidate_against_screening(
+        candidate,
+        requirement,
+        screening,
+    )
+
+    assert result["eligibility_status"] == "NEEDS_REVIEW"
+    assert "could not be evaluated" in result["eligibility_reason"]

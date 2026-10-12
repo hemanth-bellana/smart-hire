@@ -1,3 +1,4 @@
+
 from sqlalchemy.orm import Session
 
 from app.models.Screening import Screening
@@ -46,6 +47,14 @@ def analyze_and_save_screening_requirements(
 
     requirement.minimum_experience_years = (
         analysis["minimum_experience_years"]
+    )
+
+    requirement.maximum_experience_years = (
+        analysis["maximum_experience_years"]
+    )
+
+    requirement.experience_requirement_type = (
+        analysis["experience_requirement_type"]
     )
 
     requirement.required_experience_areas = (
