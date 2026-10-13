@@ -1,3 +1,5 @@
+
+import logging
 from pathlib import Path
 from uuid import uuid4
 
@@ -12,13 +14,22 @@ from app.utils.file_utils import validate_resume_file
 from app.utils.zip_utils import extract_zip_file, validate_zip_file
 
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(
     prefix="/jobs",
     tags=["Resumes"],
 )
 
-
 UPLOAD_DIRECTORY = Path("uploads/resumes")
+
+
+def _remove_file(file_path: Path) -> None:
+    """Try to remove a temporary file without masking another error."""
+    try:
+        file_path.unlink(missing_ok=True)
+    except OSError:
+        logger.warning("Could not remove temporary file: %s", file_path)
 
 
 @router.post("/{job_id}/resumes")
@@ -55,100 +66,157 @@ async def upload_resume(
             detail="Job not found",
         )
 
-    contents = await validate_resume_file(file)
-
-    extension = Path(file.filename).suffix.lower()
-    stored_filename = f"{uuid4().hex}{extension}"
-
-    UPLOAD_DIRECTORY.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    file_path = UPLOAD_DIRECTORY / stored_filename
-
-    file_path.write_bytes(contents)
-
-    # ---------------------------------------------------------
-    # ZIP upload
-    # ---------------------------------------------------------
-
-    if extension == ".zip":
-        valid_files = validate_zip_file(
-            str(file_path)
+    if not file.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Resume filename is missing.",
         )
 
+    contents = await validate_resume_file(file)
+    extension = Path(file.filename).suffix.lower()
+
+    UPLOAD_DIRECTORY.mkdir(parents=True, exist_ok=True)
+
+    stored_filename = f"{uuid4().hex}{extension}"
+    file_path = UPLOAD_DIRECTORY / stored_filename
+    file_path.write_bytes(contents)
+
+    # ZIP upload: process each extracted resume independently.
+    if extension == ".zip":
         zip_extract_directory = (
             UPLOAD_DIRECTORY / f"zip_{uuid4().hex}"
         )
 
-        extracted_files = extract_zip_file(
-            zip_path=str(file_path),
-            extract_directory=str(zip_extract_directory),
+        try:
+            validate_zip_file(str(file_path))
+
+            extracted_files = extract_zip_file(
+                zip_path=str(file_path),
+                extract_directory=str(zip_extract_directory),
+            )
+
+            processed_resumes = []
+
+            for extracted_file in extracted_files:
+                extracted_path = Path(extracted_file)
+
+                if extracted_path.suffix.lower() == ".pdf":
+                    file_type = "application/pdf"
+                else:
+                    file_type = (
+                        "application/"
+                        "vnd.openxmlformats-officedocument."
+                        "wordprocessingml.document"
+                    )
+
+                try:
+                    candidate, resume = process_resume_file(
+                        db=db,
+                        job=job,
+                        file_path=str(extracted_path),
+                        original_filename=extracted_path.name,
+                        stored_filename=extracted_path.name,
+                        file_type=file_type,
+                        file_size=extracted_path.stat().st_size,
+                    )
+
+                    processed_resumes.append(
+                        {
+                            "candidate_id": candidate.id,
+                            "resume_id": resume.id,
+                            "filename": extracted_path.name,
+                            "processing_status": resume.processing_status,
+                        }
+                    )
+
+                except Exception:
+                    logger.exception(
+                        "Failed to process ZIP resume: %s",
+                        extracted_path.name,
+                    )
+
+                    _remove_file(extracted_path)
+
+                    processed_resumes.append(
+                        {
+                            "candidate_id": None,
+                            "resume_id": None,
+                            "filename": extracted_path.name,
+                            "processing_status": "FAILED",
+                            "error": "Resume processing failed.",
+                        }
+                    )
+
+            statuses = [
+                item["processing_status"]
+                for item in processed_resumes
+            ]
+
+            completed_count = statuses.count("COMPLETED")
+            failed_count = statuses.count("FAILED")
+
+            if failed_count == 0:
+                batch_status = "COMPLETED"
+            elif completed_count == 0:
+                batch_status = "FAILED"
+            else:
+                batch_status = "PARTIAL"
+
+            return {
+                "message": "ZIP resume processing finished.",
+                "job_id": job.id,
+                "original_filename": file.filename,
+                "file_size": len(contents),
+                "processing_status": batch_status,
+                "total_resumes": len(processed_resumes),
+                "completed_resumes": completed_count,
+                "failed_resumes": failed_count,
+                "resume_files": processed_resumes,
+            }
+
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.exception("Failed to process ZIP upload.")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="The ZIP file could not be processed.",
+            ) from exc
+        finally:
+            # The ZIP is temporary; extracted resumes may be retained.
+            _remove_file(file_path)
+
+    # Single PDF/DOCX upload.
+    try:
+        candidate, resume = process_resume_file(
+            db=db,
+            job=job,
+            file_path=str(file_path),
+            original_filename=file.filename,
+            stored_filename=stored_filename,
+            file_type=file.content_type or "application/octet-stream",
+            file_size=len(contents),
         )
 
-        processed_resumes = []
-
-        for extracted_file in extracted_files:
-            extracted_path = Path(extracted_file)
-
-            candidate, resume = process_resume_file(
-                db=db,
-                job=job,
-                file_path=str(extracted_path),
-                original_filename=extracted_path.name,
-                stored_filename=extracted_path.name,
-                file_type=(
-                    "application/pdf"
-                    if extracted_path.suffix.lower() == ".pdf"
-                    else (
-                        "application/"
-                        "vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    )
-                ),
-                file_size=extracted_path.stat().st_size,
-            )
-
-            processed_resumes.append(
-                {
-                    "candidate_id": candidate.id,
-                    "resume_id": resume.id,
-                    "filename": extracted_path.name,
-                    "processing_status": resume.processing_status,
-                }
-            )
-
         return {
-            "message": "ZIP resumes processed successfully",
+            "message": "Resume uploaded successfully.",
             "job_id": job.id,
+            "candidate_id": candidate.id,
+            "resume_id": resume.id,
             "original_filename": file.filename,
             "stored_filename": stored_filename,
             "file_size": len(contents),
-            "processing_status": "COMPLETED",
-            "resume_files": processed_resumes,
+            "processing_status": resume.processing_status,
         }
 
-    # ---------------------------------------------------------
-    # Single PDF/DOCX upload
-    # ---------------------------------------------------------
+    except Exception as exc:
+        logger.exception(
+            "Failed to process uploaded resume: %s",
+            file.filename,
+        )
+        _remove_file(file_path)
 
-    candidate, resume = process_resume_file(
-        db=db,
-        job=job,
-        file_path=str(file_path),
-        original_filename=file.filename,
-        stored_filename=stored_filename,
-        file_type=file.content_type,
-        file_size=len(contents),
-    )
-
-    return {
-        "message": "Resume uploaded successfully",
-        "job_id": job.id,
-        "candidate_id": candidate.id,
-        "resume_id": resume.id,
-        "original_filename": file.filename,
-        "stored_filename": stored_filename,
-        "file_size": len(contents),
-        "processing_status": resume.processing_status,
-    }
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="The uploaded resume could not be processed.",
+        ) from exc
