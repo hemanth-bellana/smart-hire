@@ -452,25 +452,33 @@ STOP_WORDS = {
 }
 
 
+
 def extract_keywords(text: str | None) -> list[str]:
     """
-    Extract meaningful single-word keywords from text.
+    Extract meaningful keywords while preserving common
+    technical terms such as C++, C#, .NET, CI/CD and Node.js.
     """
 
     if not text:
         return []
 
     words = re.findall(
-        r"\b[a-zA-Z][a-zA-Z0-9+#.-]*\b",
+        r"(?<![a-z0-9])"
+        r"(?:c\+\+|c#|\.net|ci/cd|node\.js|"
+        r"[a-z][a-z0-9+#.-]*)"
+        r"(?![a-z0-9])",
         text.lower(),
     )
 
     keywords = []
 
     for word in words:
-        cleaned_word = word.strip(".,;:()[]{}")
+        cleaned_word = word.rstrip(".,;:()[]{}")
 
-        if len(cleaned_word) < 3:
+        if not cleaned_word:
+            continue
+
+        if len(cleaned_word) < 3 and cleaned_word != "c#":
             continue
 
         if cleaned_word in STOP_WORDS:
@@ -480,7 +488,6 @@ def extract_keywords(text: str | None) -> list[str]:
             keywords.append(cleaned_word)
 
     return keywords
-
 
 def calculate_keyword_match(
     candidate_resume_text: str | None,
@@ -964,40 +971,3 @@ def match_candidate_against_screening(
         "keyword_summary": keyword_result["keyword_summary"],
         "scoring_weights": overall_result["weights"],
     }
-
-from types import SimpleNamespace
-
-from app.services.matching_service import match_candidate_against_screening
-
-
-def make_candidate(experience_years):
-    return SimpleNamespace(
-        skills="Python, SQL",
-        experience_years=experience_years,
-        education="B.Tech",
-        certifications=None,
-        resume_text="Python developer with SQL experience",
-    )
-
-
-def make_requirement(
-    requirement_type="MINIMUM",
-    minimum_years=2,
-    maximum_years=None,
-):
-    return SimpleNamespace(
-        required_skills="Python",
-        preferred_skills=None,
-        minimum_experience_years=minimum_years,
-        maximum_experience_years=maximum_years,
-        experience_requirement_type=requirement_type,
-        required_experience_areas=None,
-        education=None,
-        required_certifications=None,
-    )
-
-
-def make_screening():
-    return SimpleNamespace(
-        jd_text="Python developer with at least 2 years of experience"
-    )
