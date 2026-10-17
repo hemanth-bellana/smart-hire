@@ -883,7 +883,7 @@ def match_candidate_against_screening(
     )
 
     semantic_score = semantic_result["semantic_score"]
-
+    semantic_available = semantic_result["semantic_available"]
     # ---------------------------------------------------------
     # Overall score
     # ---------------------------------------------------------
@@ -914,12 +914,7 @@ def match_candidate_against_screening(
     if required_certifications and required_certifications.strip():
         applicable_components.add("certification")
 
-    if (
-        candidate.resume_text
-        and candidate.resume_text.strip()
-        and screening.jd_text
-        and screening.jd_text.strip()
-    ):
+    if semantic_available:
         applicable_components.add("semantic")
 
     if keyword_result["matched_keywords"] or keyword_result["missing_keywords"]:
@@ -932,7 +927,9 @@ def match_candidate_against_screening(
     overall_result = calculate_overall_score(
         skill_score=skill_result["skill_score"],
         experience_score=experience_result["experience_score"],
-        semantic_score=semantic_score,
+        semantic_score=(
+    semantic_score if semantic_score is not None else 0.0
+),
         education_score=education_result["education_score"],
         certification_score=certification_result["certification_score"],
         keyword_score=keyword_result["keyword_score"],
@@ -950,6 +947,7 @@ def match_candidate_against_screening(
         "skill_score": skill_result["skill_score"],
         "experience_score": experience_result["experience_score"],
         "semantic_score": semantic_score,
+        "semantic_available": semantic_available,
         "semantic_summary": semantic_result["semantic_summary"],
         "education_score": education_result["education_score"],
         "certification_score": certification_result[
