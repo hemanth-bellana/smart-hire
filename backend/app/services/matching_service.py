@@ -1,5 +1,5 @@
 import re
-
+import math
 from app.models.candidate import Candidate
 from app.models.screening_requirement import ScreeningRequirement
 
@@ -568,10 +568,29 @@ DEFAULT_WEIGHTS = {
 }
 
 
+
 def validate_weights(weights: dict[str, float]) -> None:
     """
-    Make sure scoring weights add up to exactly 100.
+    Validate scoring weights.
+
+    Every weight must be a finite, non-negative number,
+    and all weights must total exactly 100.
     """
+
+    for component, weight in weights.items():
+        if (
+            isinstance(weight, bool)
+            or not isinstance(weight, (int, float))
+            or not math.isfinite(weight)
+        ):
+            raise ValueError(
+                f"Weight for '{component}' must be a finite number."
+            )
+
+        if weight < 0:
+            raise ValueError(
+                f"Weight for '{component}' must be non-negative."
+            )
 
     total = sum(weights.values())
 

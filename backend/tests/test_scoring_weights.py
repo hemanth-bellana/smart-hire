@@ -120,3 +120,31 @@ def test_calculate_overall_score_rejects_negative_score():
             skill_score=80,
             experience_score=-1,
         )
+
+@pytest.mark.parametrize(
+    "invalid_value",
+    [
+        -5,
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        "40",
+        None,
+    ],
+)
+def test_validate_weights_rejects_invalid_weight_values(invalid_value):
+    invalid_weights = DEFAULT_WEIGHTS.copy()
+    invalid_weights["skill"] = invalid_value
+
+    with pytest.raises(ValueError):
+        validate_weights(invalid_weights)
+
+
+def test_validate_weights_rejects_negative_weight_even_when_total_is_100():
+    invalid_weights = DEFAULT_WEIGHTS.copy()
+    invalid_weights["skill"] = -10
+    invalid_weights["experience"] = 70
+
+    with pytest.raises(ValueError, match="non-negative"):
+        validate_weights(invalid_weights)
+      
