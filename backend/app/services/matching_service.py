@@ -652,12 +652,17 @@ def calculate_overall_score(
         "certification": certification_score,
         "keyword": keyword_score,
     }
-
     for component, score in component_scores.items():
-        if not isinstance(score, (int, float)) or not 0 <= score <= 100:
+        if (
+        isinstance(score, bool)
+        or not isinstance(score, (int, float))
+        or not math.isfinite(score)
+        or not 0 <= score <= 100
+    ):
             raise ValueError(
-                f"{component} score must be between 0 and 100."
-            )
+            f"{component} score must be between 0 and 100."
+        )
+
 
     if applicable_components is None:
         applicable_components = required_components.copy()

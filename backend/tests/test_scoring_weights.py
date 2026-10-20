@@ -147,4 +147,12 @@ def test_validate_weights_rejects_negative_weight_even_when_total_is_100():
 
     with pytest.raises(ValueError, match="non-negative"):
         validate_weights(invalid_weights)
-      
+
+
+@pytest.mark.parametrize("invalid_score", [True, False])
+def test_calculate_overall_score_rejects_boolean_scores(invalid_score):
+    with pytest.raises(ValueError, match="between 0 and 100"):
+        calculate_overall_score(
+            skill_score=invalid_score,
+            experience_score=70,
+        )
