@@ -154,6 +154,43 @@ def calculate_experience_match(
                 ),
             }
 
+        if (
+            minimum_experience_years
+            <= candidate_experience_years
+            <= maximum_experience_years
+        ):
+            return {
+                "experience_score": 100.0,
+                "experience_match": True,
+                "experience_summary": (
+                    f"Candidate has {candidate_experience_years} "
+                    f"years of experience, which is within the "
+                    f"required range of {minimum_experience_years}-"
+                    f"{maximum_experience_years} years."
+                ),
+            }
+
+        if candidate_experience_years > maximum_experience_years:
+            return {
+                "experience_score": 0.0,
+                "experience_match": False,
+                "experience_summary": (
+                    f"Candidate has {candidate_experience_years} "
+                    f"years of experience, exceeding the maximum "
+                    f"requirement of {maximum_experience_years} years."
+                ),
+            }
+
+        return {
+            "experience_score": 0.0,
+            "experience_match": False,
+            "experience_summary": (
+                f"Candidate has {candidate_experience_years} "
+                f"years of experience, but the role requires "
+                f"at least {minimum_experience_years} years."
+            ),
+        }
+
         if candidate_experience_years >= minimum_experience_years:
             return {
                 "experience_score": 100.0,
@@ -823,6 +860,12 @@ def match_candidate_against_screening(
             or candidate.experience_years is None
         ):
             eligibility_status = "NEEDS_REVIEW"
+            eligibility_reason = experience_result[
+                "experience_summary"
+            ]
+
+        elif candidate.experience_years > maximum_years:
+            eligibility_status = "NOT_ELIGIBLE"
             eligibility_reason = experience_result[
                 "experience_summary"
             ]
