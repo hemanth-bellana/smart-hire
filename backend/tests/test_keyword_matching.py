@@ -46,3 +46,15 @@ def test_keyword_match_recognizes_technical_terms():
         "ci/cd",
         "node.js",
     }.issubset(set(result["matched_keywords"]))
+
+def test_keyword_match_ignores_generic_job_description_language():
+    result = calculate_keyword_match(
+        candidate_resume_text="Experienced in Python",
+        job_description_text=(
+            "Must have strong knowledge of Python"
+        ),
+    )
+
+    assert result["keyword_score"] == 100.0
+    assert result["matched_keywords"] == ["python"]
+    assert result["missing_keywords"] == []

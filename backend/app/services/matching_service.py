@@ -486,6 +486,22 @@ STOP_WORDS = {
     "years",
     "year",
     "etc",
+    "must",
+    "strong",
+    "good",
+    "excellent",
+    "knowledge",
+    "understanding",
+    "ability",
+    "able",
+    "proficient",
+    "proficiency",
+    "familiar",
+    "familiarity",
+    "basic",
+    "working",
+    "hands",
+    "hand",
 }
 
 
