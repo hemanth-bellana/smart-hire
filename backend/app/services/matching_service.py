@@ -17,19 +17,33 @@ def normalize_skill(skill: str) -> str:
     """
     return skill.strip().lower()
 
-
 def parse_skill_string(skills: str | None) -> list[str]:
     """
-    Convert a comma-separated string into a clean list.
+    Convert a comma-separated skill string into a clean,
+    case-insensitive list of unique skills.
+
+    Preserves the first occurrence and original spelling.
     """
     if not skills:
         return []
 
-    return [
-        skill.strip()
-        for skill in skills.split(",")
-        if skill.strip()
-    ]
+    unique_skills = []
+    seen_skills = set()
+
+    for skill in skills.split(","):
+        cleaned_skill = skill.strip()
+
+        if not cleaned_skill:
+            continue
+
+        normalized_skill = normalize_skill(cleaned_skill)
+
+        if normalized_skill not in seen_skills:
+            seen_skills.add(normalized_skill)
+            unique_skills.append(cleaned_skill)
+
+    return unique_skills
+
 
 
 # ============================================================
