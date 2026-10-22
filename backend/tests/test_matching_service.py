@@ -237,3 +237,21 @@ def test_candidate_above_experience_range_is_not_eligible():
 
     assert result["eligibility_status"] == "NOT_ELIGIBLE"
     assert "maximum" in result["eligibility_reason"].lower()
+
+def test_whitespace_only_skills_are_not_applicable():
+    candidate = make_candidate(experience_years=3)
+    requirement = make_requirement(
+        requirement_type="NONE",
+        minimum_years=None,
+    )
+    requirement.required_skills = "   "
+    requirement.preferred_skills = "  "
+
+    result = match_candidate_against_screening(
+        candidate,
+        requirement,
+        make_screening(),
+    )
+
+    assert result["skill_score"] == 0
+    assert result["scoring_weights"]["skill"] == 0

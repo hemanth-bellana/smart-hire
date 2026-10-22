@@ -969,11 +969,11 @@ def match_candidate_against_screening(
     # Determine applicable scoring components
     # ---------------------------------------------------------
 
-    applicable_components = set()
+        applicable_components = set()
 
     if (
-        requirement.required_skills
-        or requirement.preferred_skills
+        parse_skill_string(requirement.required_skills)
+        or parse_skill_string(requirement.preferred_skills)
     ):
         applicable_components.add("skill")
 
