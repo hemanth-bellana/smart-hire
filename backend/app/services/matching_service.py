@@ -133,7 +133,7 @@ def calculate_experience_match(
     experience requirement from the job description.
     """
 
-    requirement_type = experience_requirement_type.upper()
+    requirement_type = (experience_requirement_type or "NONE").strip().upper()
 
     if requirement_type == "NONE":
         return {
@@ -205,30 +205,6 @@ def calculate_experience_match(
             ),
         }
 
-        if candidate_experience_years >= minimum_experience_years:
-            return {
-                "experience_score": 100.0,
-                "experience_match": True,
-                "experience_summary": (
-                    f"Candidate has {candidate_experience_years} "
-                    f"years of experience and meets the minimum "
-                    f"requirement of {minimum_experience_years} "
-                    f"years for the "
-                    f"{minimum_experience_years}-"
-                    f"{maximum_experience_years} year range."
-                ),
-            }
-
-        return {
-            "experience_score": 0.0,
-            "experience_match": False,
-            "experience_summary": (
-                f"Candidate has {candidate_experience_years} "
-                f"years of experience, but the role requires "
-                f"at least {minimum_experience_years} years."
-            ),
-        }
-
     if requirement_type == "MINIMUM":
         if minimum_experience_years is None:
             return {
@@ -286,7 +262,10 @@ def calculate_education_match(
     requirement from the job description.
     """
 
-    if not required_education:
+    if not any(
+        item.strip()
+        for item in (required_education or "").split(",")
+    ):
         return {
             "education_score": 100.0,
             "education_match": True,
@@ -355,7 +334,11 @@ def calculate_certification_match(
     required by the job description.
     """
 
-    if not required_certifications:
+    required_certification_list = parse_skill_string(
+        required_certifications
+    )
+
+    if not required_certification_list:
         return {
             "certification_score": 100.0,
             "certification_match": True,
@@ -367,10 +350,6 @@ def calculate_certification_match(
         }
 
     if not candidate_certifications:
-        required_list = parse_skill_string(
-            required_certifications
-        )
-
         return {
             "certification_score": 0.0,
             "certification_match": False,
@@ -379,15 +358,11 @@ def calculate_certification_match(
                 "determined from the resume."
             ),
             "matched_certifications": [],
-            "missing_certifications": required_list,
+            "missing_certifications": required_certification_list,
         }
 
     candidate_certification_list = parse_skill_string(
         candidate_certifications
-    )
-
-    required_certification_list = parse_skill_string(
-        required_certifications
     )
 
     candidate_normalized = {
@@ -513,7 +488,6 @@ STOP_WORDS = {
     "familiar",
     "familiarity",
     "basic",
-    "working",
     "hands",
     "hand",
 }
@@ -919,26 +893,25 @@ def match_candidate_against_screening(
         )
 
     # ---------------------------------------------------------
-    # Education matching
+    # Education and certification matching
     # ---------------------------------------------------------
 
     education_result = calculate_education_match(
-        candidate_education=candidate.education,
+        candidate_education=getattr(candidate, "education", None),
         required_education=requirement.education,
     )
 
-    # ---------------------------------------------------------
-    # Certification matching
-    # ---------------------------------------------------------
-
+    # Resolve certification requirements from the screening model.
     required_certifications = getattr(
-        requirement,
-        "required_certifications",
-        None,
+        requirement, "required_certifications", None
     )
+    if required_certifications is None:
+        required_certifications = getattr(
+            requirement, "certifications", None
+        )
 
     certification_result = calculate_certification_match(
-        candidate_certifications=candidate.certifications,
+        candidate_certifications=getattr(candidate, "certifications", None),
         required_certifications=required_certifications,
     )
 
@@ -969,7 +942,7 @@ def match_candidate_against_screening(
     # Determine applicable scoring components
     # ---------------------------------------------------------
 
-        applicable_components = set()
+    applicable_components = set()
 
     if (
         parse_skill_string(requirement.required_skills)
@@ -986,10 +959,13 @@ def match_candidate_against_screening(
     if requirement_type in {"MINIMUM", "RANGE"}:
         applicable_components.add("experience")
 
-    if requirement.education and requirement.education.strip():
+    if any(
+        item.strip()
+        for item in (requirement.education or "").split(",")
+    ):
         applicable_components.add("education")
 
-    if required_certifications and required_certifications.strip():
+    if parse_skill_string(required_certifications):
         applicable_components.add("certification")
 
     if semantic_available:
@@ -997,6 +973,7 @@ def match_candidate_against_screening(
 
     if keyword_result["matched_keywords"] or keyword_result["missing_keywords"]:
         applicable_components.add("keyword")
+
 
     # ---------------------------------------------------------
     # Calculate the normalized overall score
@@ -1006,8 +983,8 @@ def match_candidate_against_screening(
         skill_score=skill_result["skill_score"],
         experience_score=experience_result["experience_score"],
         semantic_score=(
-    semantic_score if semantic_score is not None else 0.0
-),
+            semantic_score if semantic_score is not None else 0.0
+        ),
         education_score=education_result["education_score"],
         certification_score=certification_result["certification_score"],
         keyword_score=keyword_result["keyword_score"],

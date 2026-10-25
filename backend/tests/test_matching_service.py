@@ -1,7 +1,8 @@
-
-from app.services.matching_service import calculate_experience_match
-
-
+from app.services.matching_service import (
+    calculate_experience_match,
+    calculate_education_match,
+    calculate_certification_match,
+)
 def test_candidate_meets_minimum_experience():
     result = calculate_experience_match(
         candidate_experience_years=3,
@@ -255,3 +256,26 @@ def test_whitespace_only_skills_are_not_applicable():
 
     assert result["skill_score"] == 0
     assert result["scoring_weights"]["skill"] == 0
+
+
+def test_comma_only_education_requirement_is_treated_as_missing():
+    result = calculate_education_match(
+        candidate_education="B.Tech",
+        required_education=", , ",
+    )
+
+    assert result["education_score"] == 100.0
+    assert result["education_match"] is True
+    assert (
+        result["education_summary"]
+        == "No specific education requirement was specified."
+    )
+
+def test_comma_only_certification_requirement_is_not_a_match():
+    result = calculate_certification_match(
+        candidate_certifications="AWS",
+        required_certifications=", , ",
+    )
+
+    assert result["certification_match"] is True
+    assert result["missing_certifications"] == []
