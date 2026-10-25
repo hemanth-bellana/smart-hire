@@ -169,3 +169,21 @@ def test_out_of_range_overall_score_is_rejected(invalid_score):
 
     with pytest.raises(ValueError):
         rank_matches(matches)
+
+def test_equal_priority_and_score_preserves_input_order():
+    matches = [
+        {
+            "candidate_id": 1,
+            "eligibility_status": "ELIGIBLE",
+            "overall_score": 85.0,
+        },
+        {
+            "candidate_id": 2,
+            "eligibility_status": "ELIGIBLE",
+            "overall_score": 85.0,
+        },
+    ]
+
+    ranked = rank_matches(matches)
+
+    assert [item["candidate_id"] for item in ranked] == [1, 2]
