@@ -1,29 +1,39 @@
+
+import logging
 from pathlib import Path
 from uuid import uuid4
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
+
 from app.api.deps import get_current_user
 from app.db.database import get_db
 from app.models.candidate import Candidate
 from app.models.Screening import Screening
 from app.models.screening_requirement import ScreeningRequirement
-from app.services.matching_service import match_candidate_against_screening
 from app.models.user import User
 from app.services.docx_parser import extract_text_from_docx
+from app.services.matching_service import match_candidate_against_screening
 from app.services.pdf_parser import extract_text_from_pdf
+from app.services.ranking_service import rank_matches
 from app.services.resume_processor import process_resume_file
 from app.services.screening_requirement_service import (
     analyze_and_save_screening_requirements,
 )
 from app.utils.file_utils import validate_resume_file
 from app.utils.zip_utils import extract_zip_file, validate_zip_file
-from app.services.ranking_service import rank_matches
+
+logger = logging.getLogger(__name__)
+
 router = APIRouter(
     prefix="/screening",
     tags=["Screening"],
 )
+
 UPLOAD_DIR = Path("uploads/screenings")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
 @router.post("/jd")
 async def upload_screening_jd(
     file: UploadFile = File(...),
@@ -61,10 +71,12 @@ async def upload_screening_jd(
             jd_text = extract_text_from_docx(str(file_path))
 
     except Exception as exc:
+        logger.exception("Failed to extract text from job description")
+
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unable to extract text from JD: {exc}",
-        )
+            detail="Unable to extract text from the uploaded job description.",
+        ) from exc
 
     if not jd_text or not jd_text.strip():
         raise HTTPException(
@@ -72,7 +84,6 @@ async def upload_screening_jd(
             detail="No readable text was found in the JD.",
         )
 
-    # Create the screening.
     screening = Screening(
         created_by=current_user.id,
         jd_filename=filename,
@@ -84,7 +95,6 @@ async def upload_screening_jd(
     db.commit()
     db.refresh(screening)
 
-    # Analyze and store structured JD requirements.
     analyze_and_save_screening_requirements(
         db=db,
         screening=screening,
@@ -120,52 +130,95 @@ async def upload_screening_resume(
         )
 
     file_content = await validate_resume_file(file)
-
     extension = Path(file.filename or "").suffix.lower()
 
     screening_dir = Path("uploads/screenings") / str(screening_id)
     screening_dir.mkdir(parents=True, exist_ok=True)
 
-    # Handle ZIP containing multiple resumes.
+    # Process a ZIP containing multiple resumes independently.
     if extension == ".zip":
         stored_filename = f"{uuid4().hex}.zip"
         zip_path = screening_dir / stored_filename
         zip_path.write_bytes(file_content)
 
-        # Validate ZIP before extracting anything.
-        validate_zip_file(str(zip_path))
+        try:
+            validate_zip_file(str(zip_path))
 
-        extract_dir = screening_dir / uuid4().hex
+            extract_dir = screening_dir / uuid4().hex
 
-        extracted_files = extract_zip_file(
-            str(zip_path),
-            str(extract_dir),
-        )
+            extracted_files = extract_zip_file(
+                str(zip_path),
+                str(extract_dir),
+            )
+
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.exception(
+                "Failed to validate or extract ZIP for screening %s",
+                screening_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unable to validate or extract the uploaded ZIP file.",
+            ) from exc
 
         candidates = []
 
         for extracted_file in extracted_files:
             resume_path = Path(extracted_file)
+            original_filename = resume_path.name
 
-            candidate, resume = process_resume_file(
-                db=db,
-                file_path=str(resume_path),
-                original_filename=resume_path.name,
-                stored_filename=resume_path.name,
-                file_type=resume_path.suffix.lstrip("."),
-                file_size=resume_path.stat().st_size,
-                screening=screening,
-            )
+            try:
+                file_size = resume_path.stat().st_size
 
-            candidates.append(
-                {
-                    "candidate_id": candidate.id,
-                    "resume_id": resume.id,
-                    "name": candidate.name,
-                    "email": candidate.email,
-                    "status": resume.processing_status,
-                }
-            )
+                candidate, resume = process_resume_file(
+                    db=db,
+                    file_path=str(resume_path),
+                    original_filename=original_filename,
+                    stored_filename=original_filename,
+                    file_type=resume_path.suffix.lstrip(".").lower(),
+                    file_size=file_size,
+                    screening=screening,
+                )
+
+                candidates.append(
+                    {
+                        "candidate_id": candidate.id,
+                        "resume_id": resume.id,
+                        "name": candidate.name,
+                        "email": candidate.email,
+                        "status": resume.processing_status,
+                    }
+                )
+
+            except Exception:
+                # A failure for one resume must not stop the remaining files.
+                logger.exception(
+                    "Failed to process resume %s for screening %s",
+                    original_filename,
+                    screening_id,
+                )
+
+                # If processing failed after partially changing the session,
+                # roll back before processing the next resume.
+                try:
+                    db.rollback()
+                except Exception:
+                    logger.exception(
+                        "Database rollback failed for resume %s",
+                        original_filename,
+                    )
+
+                candidates.append(
+                    {
+                        "candidate_id": None,
+                        "resume_id": None,
+                        "name": None,
+                        "email": None,
+                        "status": "FAILED",
+                    }
+                )
 
         return {
             "screening_id": screening.id,
@@ -174,9 +227,8 @@ async def upload_screening_resume(
             "candidates": candidates,
         }
 
-    # Handle a single PDF or DOCX resume.
+    # Process a single PDF or DOCX resume.
     stored_filename = f"{uuid4().hex}{extension}"
-
     file_path = screening_dir / stored_filename
     file_path.write_bytes(file_content)
 
@@ -204,7 +256,6 @@ async def upload_screening_resume(
             }
         ],
     }
-
 
 
 @router.get("/{screening_id}/matches")
@@ -244,7 +295,7 @@ def get_screening_matches(
             detail="Screening requirements not found.",
         )
 
-    # Retrieve all candidates associated with this screening.
+    # Retrieve candidates associated with this screening.
     candidates = (
         db.query(Candidate)
         .filter(Candidate.screening_id == screening_id)
@@ -252,7 +303,6 @@ def get_screening_matches(
         .all()
     )
 
-    # Calculate a match result for each candidate.
     matches = []
 
     for candidate in candidates:
@@ -267,7 +317,6 @@ def get_screening_matches(
 
         matches.append(result)
 
-    # Rank candidates by eligibility and overall score.
     matches = rank_matches(matches)
 
     return {
