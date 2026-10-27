@@ -150,3 +150,47 @@ def test_requires_exactly_one_parent_record(db):
         )
 
     db.add.assert_not_called()
+
+def test_rolls_back_when_database_flush_fails(db, job):
+    db.flush.side_effect = RuntimeError("Database flush failed")
+
+    with pytest.raises(RuntimeError, match="Database flush failed"):
+        process_resume_file(
+            db=db,
+            file_path="uploads/alex.pdf",
+            original_filename="alex.pdf",
+            stored_filename="stored-alex.pdf",
+            file_type="application/pdf",
+            file_size=1024,
+            job=job,
+        )
+
+    db.rollback.assert_called_once()
+    db.commit.assert_not_called()
+
+def test_rolls_back_when_database_commit_fails(db, job, profile):
+    db.commit.side_effect = RuntimeError("Database commit failed")
+
+    with (
+        patch(
+            "app.services.resume_processor.extract_text_from_pdf",
+            return_value="Alex Example - Python developer",
+        ),
+        patch(
+            "app.services.resume_processor.extract_candidate_profile",
+            return_value=profile,
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="Database commit failed"):
+            process_resume_file(
+                db=db,
+                file_path="uploads/alex.pdf",
+                original_filename="alex.pdf",
+                stored_filename="stored-alex.pdf",
+                file_type="application/pdf",
+                file_size=1024,
+                job=job,
+            )
+
+    db.rollback.assert_called_once()
+    db.commit.assert_called_once()
