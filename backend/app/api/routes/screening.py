@@ -51,14 +51,21 @@ async def upload_screening_jd(
             detail="Only PDF and DOCX JD files are supported.",
         )
 
-    file_content = await file.read()
+    from app.utils.file_utils import MAX_FILE_SIZE
+    file_content = await file.read(MAX_FILE_SIZE + 1)
 
     if not file_content:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="The uploaded JD file is empty.",
-        )
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="The uploaded JD file is empty.",
+    )
 
+    if len(file_content) > MAX_FILE_SIZE:
+        raise HTTPException(
+        status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+        detail="Job description file is too large. Maximum size is 10 MB.",
+    )
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     stored_filename = f"{uuid4().hex}{extension}"
     file_path = UPLOAD_DIR / stored_filename
 

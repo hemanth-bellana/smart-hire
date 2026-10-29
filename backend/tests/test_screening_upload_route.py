@@ -1,7 +1,7 @@
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock
-
+from app.utils.file_utils import MAX_FILE_SIZE
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -170,3 +170,67 @@ def test_zip_upload_returns_failed_status_when_all_resumes_fail(
         item["status"] == "FAILED"
         for item in body["candidates"]
     )
+def test_jd_upload_rejects_empty_file(setup_screening_route):
+    response = setup_screening_route["client"].post(
+        "/screening/jd",
+        files={
+            "file": (
+                "developer.pdf",
+                b"",
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "The uploaded JD file is empty."
+    )
+
+
+def test_jd_upload_rejects_oversized_file(setup_screening_route):
+    response = setup_screening_route["client"].post(
+        "/screening/jd",
+        files={
+            "file": (
+                "developer.pdf",
+                b"%PDF-" + b"x" * MAX_FILE_SIZE,
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 413
+
+
+def test_jd_upload_accepts_valid_file(
+    setup_screening_route,
+):
+    monkeypatch = setup_screening_route["monkeypatch"]
+
+    monkeypatch.setattr(
+        screening_route,
+        "extract_text_from_pdf",
+        lambda path: "Python developer with API experience",
+    )
+
+    monkeypatch.setattr(
+        screening_route,
+        "analyze_and_save_screening_requirements",
+        lambda **kwargs: None,
+    )
+
+    response = setup_screening_route["client"].post(
+        "/screening/jd",
+        files={
+            "file": (
+                "developer.pdf",
+                b"%PDF-1.7 sample",
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["jd_filename"] == "developer.pdf"
+    setup_screening_route["db"].commit.assert_called_once()
