@@ -183,10 +183,20 @@ async def upload_resume(
                 detail="The ZIP file could not be processed.",
             ) from exc
         finally:
-            # The ZIP is temporary; extracted resumes may be retained.
+            # The original ZIP is temporary and should always be removed.
             _remove_file(file_path)
 
-    # Single PDF/DOCX upload.
+            # Remove the extraction directory only if it is empty.
+            try:
+                zip_extract_directory.rmdir()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                logger.debug(
+                    "Retaining non-empty ZIP extraction directory: %s",
+                    zip_extract_directory,
+                )
+    # Single PDF/DOCX ufinallypload.
     try:
         candidate, resume = process_resume_file(
             db=db,
