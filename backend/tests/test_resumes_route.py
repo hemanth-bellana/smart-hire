@@ -223,16 +223,14 @@ def test_zip_batch_returns_failed_when_all_processing_raises(
     assert body["completed_resumes"] == 0
     assert body["failed_resumes"] == 2
     assert processed_names == ["one.pdf", "two.pdf"]
+
     remaining_directories = list(
-    setup_route["upload_directory"].glob("zip_*")
+        setup_route["upload_directory"].glob("zip_*")
     )
     assert remaining_directories == []
-    remaining_directories = list(
-    setup_route["upload_directory"].glob("zip_*")
-)
-    assert remaining_directories == []
+
     zip_files = list(
-    setup_route["upload_directory"].glob("*.zip")
+        setup_route["upload_directory"].glob("*.zip")
     )
     assert zip_files == []
 def test_invalid_zip_upload_removes_original_file(setup_route):
@@ -314,3 +312,172 @@ def test_single_resume_upload_removes_file_on_failure(setup_route):
     )
 
     assert stored_files == []
+def test_upload_resume_returns_404_when_user_not_found(
+    setup_route,
+):
+    setup_route["db"].query.side_effect = [
+        MagicMock()
+    ]
+
+    setup_route["db"].query.return_value.filter.return_value.first.return_value = None
+
+    response = setup_route["client"].post(
+        "/jobs/10/resumes",
+        files={
+            "file": (
+                "resume.pdf",
+                b"%PDF-1.7 sample",
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "User not found"
+def test_upload_resume_returns_404_when_job_not_found(
+    setup_route,
+):
+    setup_route["db"].query.side_effect = [
+        setup_route["db"].query.side_effect[0],
+        MagicMock(),
+    ]
+
+    job_query = setup_route["db"].query.side_effect[1]
+
+    job_query.filter.return_value.first.return_value = None
+
+    response = setup_route["client"].post(
+        "/jobs/10/resumes",
+        files={
+            "file": (
+                "resume.pdf",
+                b"%PDF-1.7 sample",
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Job not found"
+def test_upload_resume_returns_404_when_user_not_found(setup_route):
+    user_query = MagicMock()
+    setup_route["db"].query.side_effect = [user_query]
+
+    user_query.filter.return_value.first.return_value = None
+
+    response = setup_route["client"].post(
+        "/jobs/10/resumes",
+        files={
+            "file": (
+                "resume.pdf",
+                b"%PDF-1.7 sample",
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "User not found"
+def test_upload_resume_returns_404_when_job_not_found(setup_route):
+    user_query = MagicMock()
+    job_query = MagicMock()
+
+    setup_route["db"].query.side_effect = [user_query, job_query]
+
+    user_query.filter.return_value.first.return_value = (
+        SimpleNamespace(id=1, email="hr@example.com")
+    )
+    job_query.filter.return_value.first.return_value = None
+
+    response = setup_route["client"].post(
+        "/jobs/10/resumes",
+        files={
+            "file": (
+                "resume.pdf",
+                b"%PDF-1.7 sample",
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Job not found"
+def test_upload_resume_rejects_job_owned_by_another_user(
+    setup_route,
+):
+    user_query = MagicMock()
+    job_query = MagicMock()
+
+    setup_route["db"].query.side_effect = [
+        user_query,
+        job_query,
+    ]
+
+    user_query.filter.return_value.first.return_value = (
+        SimpleNamespace(id=1, email="hr@example.com")
+    )
+
+    # The ownership-filtered job query returns no result.
+    job_query.filter.return_value.first.return_value = None
+
+    response = setup_route["client"].post(
+        "/jobs/10/resumes",
+        files={
+            "file": (
+                "resume.pdf",
+                b"%PDF-1.7 sample",
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Job not found"
+
+    # Upload must not proceed.
+    assert not setup_route["upload_directory"].exists()
+def test_upload_resume_handles_directory_creation_failure(setup_route):
+    def fail_mkdir(*args, **kwargs):
+        raise OSError("Permission denied")
+
+    setup_route["monkeypatch"].setattr(
+        resumes_route.Path,
+        "mkdir",
+        fail_mkdir,
+    )
+
+    response = setup_route["client"].post(
+        "/jobs/10/resumes",
+        files={
+            "file": (
+                "resume.pdf",
+                b"%PDF-1.7 sample",
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 500
+def test_upload_resume_handles_file_write_failure(setup_route):
+    def fail_write_bytes(self, contents):
+        raise OSError("Disk write failed")
+
+    setup_route["monkeypatch"].setattr(
+        resumes_route.Path,
+        "write_bytes",
+        fail_write_bytes,
+    )
+
+    response = setup_route["client"].post(
+        "/jobs/10/resumes",
+        files={
+            "file": (
+                "resume.pdf",
+                b"%PDF-1.7 sample",
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Unable to save the uploaded resume."

@@ -75,11 +75,20 @@ async def upload_resume(
     contents = await validate_resume_file(file)
     extension = Path(file.filename).suffix.lower()
 
-    UPLOAD_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    try:
+        UPLOAD_DIRECTORY.mkdir(parents=True, exist_ok=True)
 
-    stored_filename = f"{uuid4().hex}{extension}"
-    file_path = UPLOAD_DIRECTORY / stored_filename
-    file_path.write_bytes(contents)
+        stored_filename = f"{uuid4().hex}{extension}"
+        file_path = UPLOAD_DIRECTORY / stored_filename
+        file_path.write_bytes(contents)
+
+    except OSError as exc:
+        logger.exception("Failed to save uploaded resume.")
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to save the uploaded resume.",
+        ) from exc
 
     # ZIP upload: process each extracted resume independently.
     if extension == ".zip":
