@@ -80,9 +80,11 @@ def test_processes_pdf_resume_successfully(db, job, profile):
     assert resume.id == 201
     assert resume.candidate_id == candidate.id
     assert resume.processing_status == "COMPLETED"
-    
+    assert candidate.status == "PROCESSED"
+
     db.commit.assert_called_once()
     db.rollback.assert_not_called()
+
 
 def test_marks_resume_failed_when_no_text_is_extracted(db, job):
     with patch(
@@ -102,6 +104,7 @@ def test_marks_resume_failed_when_no_text_is_extracted(db, job):
     assert candidate.id == 101
     assert resume.candidate_id == candidate.id
     assert resume.processing_status == "FAILED"
+    assert candidate.status == "PROCESSING_FAILED"
     db.commit.assert_called_once()
     db.rollback.assert_not_called()
 
@@ -220,6 +223,7 @@ def test_processes_docx_resume_successfully(db, job, profile):
     assert candidate.resume_text == "Alex Example - Python developer"
     assert resume.candidate_id == candidate.id
     assert resume.processing_status == "COMPLETED"
+    assert candidate.status == "PROCESSED"
     db.commit.assert_called_once()
     db.rollback.assert_not_called()
 

@@ -72,7 +72,7 @@ def process_resume_file(
         # Keep the records but flag resumes containing no extractable text.
         if not extracted_text.strip():
             resume.processing_status = "FAILED"
-
+            candidate.status = "PROCESSING_FAILED"
             db.commit()
             db.refresh(candidate)
             db.refresh(resume)
@@ -110,6 +110,7 @@ def process_resume_file(
         )
 
         resume.processing_status = "COMPLETED"
+        candidate.status = "PROCESSED"
 
         # Commit both records and their extracted data together.
         db.commit()
