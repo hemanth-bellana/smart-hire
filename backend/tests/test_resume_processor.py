@@ -80,9 +80,9 @@ def test_processes_pdf_resume_successfully(db, job, profile):
     assert resume.id == 201
     assert resume.candidate_id == candidate.id
     assert resume.processing_status == "COMPLETED"
+    
     db.commit.assert_called_once()
     db.rollback.assert_not_called()
-
 
 def test_marks_resume_failed_when_no_text_is_extracted(db, job):
     with patch(
@@ -194,3 +194,51 @@ def test_rolls_back_when_database_commit_fails(db, job, profile):
 
     db.rollback.assert_called_once()
     db.commit.assert_called_once()
+def test_processes_docx_resume_successfully(db, job, profile):
+    with (
+        patch(
+            "app.services.resume_processor.extract_text_from_docx",
+            return_value="Alex Example - Python developer",
+        ),
+        patch(
+            "app.services.resume_processor.extract_candidate_profile",
+            return_value=profile,
+        ),
+    ):
+        candidate, resume = process_resume_file(
+            db=db,
+            file_path="uploads/alex.docx",
+            original_filename="alex.docx",
+            stored_filename="stored-alex.docx",
+            file_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            file_size=1024,
+            job=job,
+        )
+
+    assert candidate.id == 101
+    assert candidate.name == "Alex Example"
+    assert candidate.resume_text == "Alex Example - Python developer"
+    assert resume.candidate_id == candidate.id
+    assert resume.processing_status == "COMPLETED"
+    db.commit.assert_called_once()
+    db.rollback.assert_not_called()
+
+
+def test_rolls_back_when_docx_parsing_fails(db, job):
+    with patch(
+        "app.services.resume_processor.extract_text_from_docx",
+        side_effect=ValueError("Invalid DOCX"),
+    ):
+        with pytest.raises(ValueError, match="Invalid DOCX"):
+            process_resume_file(
+                db=db,
+                file_path="uploads/broken.docx",
+                original_filename="broken.docx",
+                stored_filename="broken.docx",
+                file_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                file_size=100,
+                job=job,
+            )
+
+    db.rollback.assert_called_once()
+    db.commit.assert_not_called()
