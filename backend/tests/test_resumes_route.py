@@ -100,7 +100,14 @@ def configure_zip_processing(setup, filenames, outcomes):
         if isinstance(outcome, Exception):
             raise outcome
 
-        candidate = SimpleNamespace(id=len(processed_names) + 100)
+        candidate = SimpleNamespace(
+    id=len(processed_names) + 100,
+    status=(
+        "PROCESSED"
+        if outcome == "COMPLETED"
+        else "PROCESSING_FAILED"
+    ),
+)
         resume = SimpleNamespace(
             id=len(processed_names) + 200,
             processing_status=outcome,
@@ -147,6 +154,10 @@ def test_zip_batch_returns_completed_when_all_succeed(setup_route):
     assert body["completed_resumes"] == 2
     assert body["failed_resumes"] == 0
     assert len(body["resume_files"]) == 2
+    assert body["resume_files"][0]["candidate_status"] == "PROCESSED"
+    assert body["resume_files"][1]["candidate_status"] == "PROCESSED"
+    assert body["resume_files"][0]["candidate_status"] == "PROCESSED"
+    assert body["resume_files"][1]["candidate_status"] == "PROCESSED"
     assert processed_names == ["one.pdf", "two.pdf"]
     remaining_directories = list(
         setup_route["upload_directory"].glob("zip_*")
@@ -185,6 +196,8 @@ def test_zip_batch_returns_partial_and_continues_after_error(
     assert body["resume_files"][0]["processing_status"] == "FAILED"
     assert body["resume_files"][0]["candidate_id"] is None
     assert body["resume_files"][1]["processing_status"] == "COMPLETED"
+    assert body["resume_files"][1]["candidate_status"] == "PROCESSED"
+
     assert processed_names == ["one.pdf", "two.pdf"]
     remaining_directories = list(
         setup_route["upload_directory"].glob("zip_*")
@@ -260,7 +273,7 @@ def test_single_resume_upload_retains_file_on_success(setup_route):
         resumes_route,
         "process_resume_file",
         lambda **kwargs: (
-            SimpleNamespace(id=101),
+            SimpleNamespace(id=101, status="PROCESSED"),
             SimpleNamespace(id=201, processing_status="COMPLETED"),
         ),
     )
@@ -277,6 +290,7 @@ def test_single_resume_upload_retains_file_on_success(setup_route):
     )
 
     assert response.status_code == 200
+    assert response.json()["candidate_status"] == "PROCESSED"
 
     stored_files = list(
         setup_route["upload_directory"].glob("*.pdf")

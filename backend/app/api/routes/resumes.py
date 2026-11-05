@@ -132,6 +132,7 @@ async def upload_resume(
                     processed_resumes.append(
                         {
                             "candidate_id": candidate.id,
+                            "candidate_status": candidate.status,
                             "resume_id": resume.id,
                             "filename": extracted_path.name,
                             "processing_status": resume.processing_status,
@@ -149,6 +150,7 @@ async def upload_resume(
                     processed_resumes.append(
                         {
                             "candidate_id": None,
+                            "candidate_status": None,
                             "resume_id": None,
                             "filename": extracted_path.name,
                             "processing_status": "FAILED",
@@ -222,6 +224,7 @@ async def upload_resume(
             "job_id": job.id,
             "candidate_id": candidate.id,
             "resume_id": resume.id,
+            "candidate_status": candidate.status,
             "original_filename": file.filename,
             "stored_filename": stored_filename,
             "file_size": len(contents),

@@ -310,7 +310,52 @@ def get_screening_matches(
         .all()
     )
 
+        # Match only candidates whose resume processing completed successfully.
+    processed_candidates = [
+        candidate
+        for candidate in candidates
+        if candidate.status == "PROCESSED"
+    ]
+
+    processing_failed_candidates = sum(
+        1
+        for candidate in candidates
+        if candidate.status == "PROCESSING_FAILED"
+    )
+
+    pending_candidates = sum(
+        1
+        for candidate in candidates
+        if candidate.status not in ("PROCESSED", "PROCESSING_FAILED")
+    )
+
     matches = []
+
+    for candidate in processed_candidates:
+        result = match_candidate_against_screening(
+            candidate=candidate,
+            requirement=requirement,
+            screening=screening,
+        )
+
+        result["candidate_name"] = candidate.name
+        result["candidate_email"] = candidate.email
+        result["candidate_status"] = candidate.status
+
+        matches.append(result)
+
+    matches = rank_matches(matches)
+
+    return {
+        "screening_id": screening.id,
+        "jd_filename": screening.jd_filename,
+        "total_candidates": len(candidates),
+        "processed_candidates": len(processed_candidates),
+        "processing_failed_candidates": processing_failed_candidates,
+        "pending_candidates": pending_candidates,
+        "total_matches": len(matches),
+        "matches": matches,
+    }
 
     for candidate in candidates:
         result = match_candidate_against_screening(
