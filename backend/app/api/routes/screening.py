@@ -2,8 +2,15 @@
 import logging
 from pathlib import Path
 from uuid import uuid4
-
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -265,13 +272,17 @@ async def upload_screening_resume(
     }
 
 
+
 @router.get("/{screening_id}/matches")
 def get_screening_matches(
     screening_id: int,
+    eligibility_status: str | None = None,
+    min_score: float | None = Query(default=None, ge=0, le=100),
+    skill: str | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # Verify that this screening belongs to the logged-in HR user.
+    # Verify screening ownership.
     screening = (
         db.query(Screening)
         .filter(
@@ -287,7 +298,7 @@ def get_screening_matches(
             detail="Screening not found.",
         )
 
-    # Retrieve the structured requirements for this screening.
+    # Retrieve screening requirements.
     requirement = (
         db.query(ScreeningRequirement)
         .filter(
@@ -302,7 +313,7 @@ def get_screening_matches(
             detail="Screening requirements not found.",
         )
 
-    # Retrieve candidates associated with this screening.
+    # Retrieve candidates.
     candidates = (
         db.query(Candidate)
         .filter(Candidate.screening_id == screening_id)
@@ -310,7 +321,7 @@ def get_screening_matches(
         .all()
     )
 
-        # Match only candidates whose resume processing completed successfully.
+    # Only successfully processed candidates can be matched.
     processed_candidates = [
         candidate
         for candidate in candidates
@@ -326,8 +337,29 @@ def get_screening_matches(
     pending_candidates = sum(
         1
         for candidate in candidates
-        if candidate.status not in ("PROCESSED", "PROCESSING_FAILED")
+        if candidate.status not in (
+            "PROCESSED",
+            "PROCESSING_FAILED",
+        )
     )
+
+    # Validate eligibility filter.
+    allowed_eligibility_statuses = {
+        "ELIGIBLE",
+        "NEEDS_REVIEW",
+        "NOT_ELIGIBLE",
+    }
+
+    normalized_eligibility = None
+
+    if eligibility_status:
+        normalized_eligibility = eligibility_status.strip().upper()
+
+        if normalized_eligibility not in allowed_eligibility_statuses:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid eligibility status",
+            )
 
     matches = []
 
@@ -342,8 +374,43 @@ def get_screening_matches(
         result["candidate_email"] = candidate.email
         result["candidate_status"] = candidate.status
 
+        # Keep extracted skills temporarily for filtering.
+        result["_candidate_skills"] = candidate.skills or ""
+
         matches.append(result)
 
+    # Apply eligibility filter.
+    if normalized_eligibility:
+        matches = [
+            match
+            for match in matches
+            if match.get("eligibility_status")
+            == normalized_eligibility
+        ]
+
+    # Apply minimum overall score filter.
+    if min_score is not None:
+        matches = [
+            match
+            for match in matches
+            if match.get("overall_score", 0) >= min_score
+        ]
+
+    # Apply case-insensitive candidate skill filter.
+    if skill and skill.strip():
+        search_skill = skill.strip().casefold()
+
+        matches = [
+            match
+            for match in matches
+            if search_skill in match["_candidate_skills"].casefold()
+        ]
+
+    # Remove the temporary filtering field.
+    for match in matches:
+        match.pop("_candidate_skills", None)
+
+    # Preserve the existing ranking behavior.
     matches = rank_matches(matches)
 
     return {
@@ -354,26 +421,5 @@ def get_screening_matches(
         "processing_failed_candidates": processing_failed_candidates,
         "pending_candidates": pending_candidates,
         "total_matches": len(matches),
-        "matches": matches,
-    }
-
-    for candidate in candidates:
-        result = match_candidate_against_screening(
-            candidate=candidate,
-            requirement=requirement,
-            screening=screening,
-        )
-
-        result["candidate_name"] = candidate.name
-        result["candidate_email"] = candidate.email
-
-        matches.append(result)
-
-    matches = rank_matches(matches)
-
-    return {
-        "screening_id": screening.id,
-        "jd_filename": screening.jd_filename,
-        "total_candidates": len(matches),
         "matches": matches,
     }

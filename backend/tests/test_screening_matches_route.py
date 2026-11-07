@@ -37,6 +37,7 @@ def setup_screening_matches(monkeypatch):
             name="Alex",
             email="alex@example.com",
             screening_id=20,
+            skills="Python, SQL, Machine Learning",
             status="PROCESSED",
         ),
         SimpleNamespace(
@@ -58,6 +59,7 @@ def setup_screening_matches(monkeypatch):
             name="Priya",
             email="priya@example.com",
             screening_id=20,
+            skills="Java, Spring Boot, SQL",
             status="PROCESSED",
         ),
     ]
@@ -97,6 +99,42 @@ def setup_screening_matches(monkeypatch):
     }
 
 
+# Reusable fake matching function for filter tests.
+def configure_fake_matching(monkeypatch):
+    def fake_match_candidate_against_screening(
+        candidate,
+        requirement,
+        screening,
+    ):
+        return {
+            "candidate_id": candidate.id,
+            "eligibility_status": (
+                "ELIGIBLE"
+                if candidate.id == 101
+                else "NEEDS_REVIEW"
+            ),
+            "overall_score": (
+                85 if candidate.id == 101 else 65
+            ),
+        }
+
+    monkeypatch.setattr(
+        screening_route,
+        "match_candidate_against_screening",
+        fake_match_candidate_against_screening,
+    )
+
+    monkeypatch.setattr(
+        screening_route,
+        "rank_matches",
+        lambda matches: matches,
+    )
+
+
+# ---------------------------------------------------------
+# Existing tests
+# ---------------------------------------------------------
+
 def test_matches_only_processed_candidates(setup_screening_matches):
     matched_candidate_ids = []
 
@@ -109,8 +147,14 @@ def test_matches_only_processed_candidates(setup_screening_matches):
 
         return {
             "candidate_id": candidate.id,
-            "eligibility_status": "ELIGIBLE",
-            "score": 85,
+            "eligibility_status": (
+                "ELIGIBLE"
+                if candidate.id == 101
+                else "NEEDS_REVIEW"
+            ),
+            "overall_score": (
+                85 if candidate.id == 101 else 65
+            ),
         }
 
     setup_screening_matches["monkeypatch"].setattr(
@@ -171,7 +215,9 @@ def test_matches_return_empty_when_no_candidates_are_processed(
     ]
 
     def unexpected_match(*args, **kwargs):
-        pytest.fail("Matching should not run for unprocessed candidates")
+        pytest.fail(
+            "Matching should not run for unprocessed candidates"
+        )
 
     setup_screening_matches["monkeypatch"].setattr(
         screening_route,
@@ -199,3 +245,97 @@ def test_matches_return_empty_when_no_candidates_are_processed(
     assert body["pending_candidates"] == 1
     assert body["total_matches"] == 0
     assert body["matches"] == []
+
+
+# ---------------------------------------------------------
+# New filtering tests
+# ---------------------------------------------------------
+
+def test_filter_matches_by_eligibility_status(
+    setup_screening_matches,
+):
+    data = setup_screening_matches
+    configure_fake_matching(data["monkeypatch"])
+
+    response = data["client"].get(
+        "/screening/20/matches?eligibility_status=ELIGIBLE"
+    )
+
+    assert response.status_code == 200
+
+    matches = response.json()["matches"]
+
+    assert len(matches) == 1
+    assert matches[0]["candidate_id"] == 101
+    assert matches[0]["eligibility_status"] == "ELIGIBLE"
+
+
+def test_filter_matches_by_minimum_score(
+    setup_screening_matches,
+):
+    data = setup_screening_matches
+    configure_fake_matching(data["monkeypatch"])
+
+    response = data["client"].get(
+        "/screening/20/matches?min_score=70"
+    )
+
+    assert response.status_code == 200
+
+    matches = response.json()["matches"]
+
+    assert len(matches) == 1
+    assert matches[0]["candidate_id"] == 101
+    assert matches[0]["overall_score"] == 85
+
+
+def test_filter_matches_by_skill(
+    setup_screening_matches,
+):
+    data = setup_screening_matches
+    configure_fake_matching(data["monkeypatch"])
+
+    response = data["client"].get(
+        "/screening/20/matches?skill=Spring"
+    )
+
+    assert response.status_code == 200
+
+    matches = response.json()["matches"]
+
+    assert len(matches) == 1
+    assert matches[0]["candidate_id"] == 104
+
+
+def test_filter_matches_using_multiple_filters(
+    setup_screening_matches,
+):
+    data = setup_screening_matches
+    configure_fake_matching(data["monkeypatch"])
+
+    response = data["client"].get(
+        "/screening/20/matches"
+        "?eligibility_status=NEEDS_REVIEW"
+        "&min_score=60"
+        "&skill=Java"
+    )
+
+    assert response.status_code == 200
+
+    matches = response.json()["matches"]
+
+    assert len(matches) == 1
+    assert matches[0]["candidate_id"] == 104
+    assert matches[0]["eligibility_status"] == "NEEDS_REVIEW"
+    assert matches[0]["overall_score"] == 65
+
+
+def test_reject_invalid_eligibility_status(
+    setup_screening_matches,
+):
+    response = setup_screening_matches["client"].get(
+        "/screening/20/matches?eligibility_status=INVALID"
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid eligibility status"
