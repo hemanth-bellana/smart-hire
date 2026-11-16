@@ -19,7 +19,6 @@ class Candidate(Base):
     nullable=True,
     index=True,
     )
-
     screening_id: Mapped[int | None] = mapped_column(
     ForeignKey("screenings.id"),
     nullable=True,
@@ -90,7 +89,12 @@ class Candidate(Base):
         default="PENDING",
         nullable=False,
     )
-
+    recruitment_status: Mapped[str] = mapped_column(
+        String(50),
+        default="NEW",
+        server_default="NEW",
+        nullable=False,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,

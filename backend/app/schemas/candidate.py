@@ -1,7 +1,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CandidateResponse(BaseModel):
@@ -20,4 +20,12 @@ class CandidateResponse(BaseModel):
     certifications: str | None
     match_score: float | None
     status: str
+    recruitment_status: str
     created_at: datetime
+
+
+class RecruitmentStatusUpdate(BaseModel):
+    recruitment_status: str = Field(
+        ...,
+        description="New recruitment status for the candidate",
+    )

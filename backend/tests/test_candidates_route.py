@@ -40,6 +40,7 @@ def setup_candidates_route():
         certifications="AWS Cloud Practitioner",
         match_score=85.5,
         status="PROCESSED",
+        recruitment_status="NEW",
         created_at=datetime(2026, 11, 6, 10, 30),
         resume_text="This is private raw resume text.",
     )
@@ -108,6 +109,7 @@ def test_list_screening_candidates_success(
     assert body[0]["name"] == "Alex Example"
     assert body[0]["status"] == "PROCESSED"
     assert body[0]["match_score"] == 85.5
+    assert body[0]["recruitment_status"] == "NEW"
     assert "resume_text" not in body[0]
 
 
@@ -349,3 +351,251 @@ def test_list_candidates_rejects_invalid_processing_status(
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Invalid processing status"
+def configure_owned_candidate_query(data):
+    db = data["db"]
+
+    configure_user_query(db, data["user"])
+
+    candidate_query = MagicMock()
+
+    db.query.side_effect = [
+        db.query.return_value,
+        candidate_query,
+    ]
+
+    candidate_query.join.return_value.filter.return_value.first.return_value = (
+        data["candidate"]
+    )
+
+    return candidate_query
+def test_shortlist_candidate_success(setup_candidates_route):
+    data = setup_candidates_route
+    db = data["db"]
+
+    configure_owned_candidate_query(data)
+
+    response = data["client"].post(
+        "/candidates/101/shortlist"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["recruitment_status"] == "SHORTLISTED"
+    assert response.json()["status"] == "PROCESSED"
+
+    db.commit.assert_called_once()
+    db.refresh.assert_called_once_with(data["candidate"])
+def test_update_candidate_recruitment_status(
+    setup_candidates_route,
+):
+    data = setup_candidates_route
+    db = data["db"]
+
+    configure_owned_candidate_query(data)
+
+    response = data["client"].patch(
+        "/candidates/101/status",
+        json={
+            "recruitment_status": "INTERVIEW",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["recruitment_status"] == "INTERVIEW"
+    assert response.json()["status"] == "PROCESSED"
+
+    db.commit.assert_called_once()
+    db.refresh.assert_called_once_with(data["candidate"])
+def test_update_candidate_rejects_invalid_status(
+    setup_candidates_route,
+):
+    data = setup_candidates_route
+
+    configure_owned_candidate_query(data)
+
+    response = data["client"].patch(
+        "/candidates/101/status",
+        json={"recruitment_status": "INVALID"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid recruitment status"
+def test_shortlist_rejects_unprocessed_candidate(
+    setup_candidates_route,
+):
+    data = setup_candidates_route
+    data["candidate"].status = "PENDING"
+
+    configure_owned_candidate_query(data)
+
+    response = data["client"].post(
+        "/candidates/101/shortlist"
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Candidate resume has not been processed"
+    )
+
+    data["db"].commit.assert_not_called()
+def test_shortlist_rejects_candidate_owned_by_another_hr(
+    setup_candidates_route,
+):
+    data = setup_candidates_route
+    db = data["db"]
+
+    configure_user_query(db, data["user"])
+
+    candidate_query = MagicMock()
+
+    db.query.side_effect = [
+        db.query.return_value,
+        candidate_query,
+    ]
+
+    candidate_query.join.return_value.filter.return_value.first.return_value = (
+        None
+    )
+
+    response = data["client"].post(
+        "/candidates/101/shortlist"
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Candidate not found"
+    db.commit.assert_not_called()
+def test_shortlist_rolls_back_when_commit_fails(
+    setup_candidates_route,
+):
+    data = setup_candidates_route
+    db = data["db"]
+
+    configure_owned_candidate_query(data)
+
+    db.commit.side_effect = Exception("Database error")
+
+    with pytest.raises(Exception, match="Database error"):
+        data["client"].post(
+            "/candidates/101/shortlist"
+        )
+
+    db.rollback.assert_called_once()
+
+def test_list_candidates_filters_by_recruitment_status(
+    setup_candidates_route,
+):
+    data = setup_candidates_route
+    db = data["db"]
+
+    configure_user_query(db, data["user"])
+
+    screening_query = MagicMock()
+    candidate_query = MagicMock()
+    recruitment_query = MagicMock()
+    final_query = MagicMock()
+
+    db.query.side_effect = [
+        db.query.return_value,
+        screening_query,
+        candidate_query,
+    ]
+
+    screening_query.filter.return_value.first.return_value = (
+        data["screening"]
+    )
+
+    candidate_query.filter.return_value = recruitment_query
+    recruitment_query.filter.return_value = final_query
+
+    final_query.order_by.return_value.all.return_value = [
+        data["candidate"]
+    ]
+
+    data["candidate"].recruitment_status = "SHORTLISTED"
+
+    response = data["client"].get(
+        "/candidates/screening/20"
+        "?recruitment_status=SHORTLISTED"
+    )
+
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["recruitment_status"] == "SHORTLISTED"
+
+def test_list_candidates_rejects_invalid_recruitment_status(
+    setup_candidates_route,
+):
+    data = setup_candidates_route
+    db = data["db"]
+
+    configure_user_query(db, data["user"])
+
+    screening_query = MagicMock()
+    candidate_query = MagicMock()
+
+    db.query.side_effect = [
+        db.query.return_value,
+        screening_query,
+        candidate_query,
+    ]
+
+    screening_query.filter.return_value.first.return_value = (
+        data["screening"]
+    )
+
+    response = data["client"].get(
+        "/candidates/screening/20"
+        "?recruitment_status=INVALID"
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Invalid recruitment status"
+    )
+def test_list_candidates_filters_by_all_criteria(
+    setup_candidates_route,
+):
+    data = setup_candidates_route
+    db = data["db"]
+
+    configure_user_query(db, data["user"])
+
+    screening_query = MagicMock()
+    candidate_query = MagicMock()
+    status_query = MagicMock()
+    recruitment_query = MagicMock()
+    skill_query = MagicMock()
+    final_query = MagicMock()
+
+    db.query.side_effect = [
+        db.query.return_value,
+        screening_query,
+        candidate_query,
+    ]
+
+    screening_query.filter.return_value.first.return_value = (
+        data["screening"]
+    )
+
+    candidate_query.filter.return_value = status_query
+    status_query.filter.return_value = recruitment_query
+    recruitment_query.filter.return_value = skill_query
+    skill_query.filter.return_value = final_query
+
+    data["candidate"].recruitment_status = "SHORTLISTED"
+
+    final_query.order_by.return_value.all.return_value = [
+        data["candidate"]
+    ]
+
+    response = data["client"].get(
+        "/candidates/screening/20"
+        "?processing_status=PROCESSED"
+        "&recruitment_status=SHORTLISTED"
+        "&skill=Python"
+    )
+
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["status"] == "PROCESSED"
+    assert response.json()[0]["recruitment_status"] == "SHORTLISTED"
+    assert "Python" in response.json()[0]["skills"]
