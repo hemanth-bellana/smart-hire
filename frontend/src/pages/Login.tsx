@@ -2,10 +2,10 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import "../App.css";
-import { loginUser } from "../api/authApi";
-
+import { useAuth } from "../context/useAuth";
 function Login() {
   const navigate = useNavigate();
+  const { login } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -37,16 +37,11 @@ function Login() {
     setError("");
     setIsLoading(true);
 
-    try {
-      const response = await loginUser({
+        try {
+      await login({
         username: email,
         password,
       });
-
-      localStorage.setItem(
-        "access_token",
-        response.access_token,
-      );
 
       navigate("/dashboard");
     } catch (error) {
@@ -55,7 +50,7 @@ function Login() {
       setError(
         "Invalid email or password. Please try again.",
       );
-    } finally {
+        } finally {
       setIsLoading(false);
     }
   };

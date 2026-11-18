@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-
+from app.models.user import User
 from app.api.deps import get_current_user, get_db
 from app.schemas.auth import (
     CurrentUserResponse,
@@ -70,8 +70,8 @@ def login(
 
 @router.get("/me", response_model=CurrentUserResponse)
 def get_me(
-    current_user: str = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     return CurrentUserResponse(
-        email=current_user,
+        email=current_user.email,
     )

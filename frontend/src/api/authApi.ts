@@ -30,3 +30,13 @@ export async function loginUser(
 
   return response.data;
 }
+
+export interface CurrentUser {
+  email: string;
+}
+
+export async function getCurrentUser(): Promise<CurrentUser> {
+  const response = await apiClient.get<CurrentUser>("/auth/me");
+
+  return response.data;
+}
